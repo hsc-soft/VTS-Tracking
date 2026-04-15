@@ -11,5 +11,6 @@ const db = new Pool({
 db.connect()
   .then(() => console.log('✅ Supabase PostgreSQL connected!'))
   .catch(err => console.error('❌ Database connection error:', err.message));
+  
 
 module.exports = db;

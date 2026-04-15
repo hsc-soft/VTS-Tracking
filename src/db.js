@@ -1,5 +1,4 @@
 const { Pool } = require('pg');
-require('dotenv').config();
 
 const db = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -11,6 +10,5 @@ const db = new Pool({
 db.connect()
   .then(() => console.log('✅ Supabase PostgreSQL connected!'))
   .catch(err => console.error('❌ Database connection error:', err.message));
-  
 
 module.exports = db;

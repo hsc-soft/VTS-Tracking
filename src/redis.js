@@ -5,4 +5,9 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN || 'gQAAAAAAAAQqnAAIncDI1MmE3MTJiMWJlMjk0MGQ5YjBmMmQzNDAzMTAyMWYxM3AyNjgyNjM',
 });
 
+// Test Redis connection
+redis.ping()
+  .then(() => console.log('✅ Upstash Redis connected!'))
+  .catch(err => console.error('❌ Redis error:', err.message));
+
 module.exports = redis;

@@ -40,7 +40,7 @@ app.use((req, res) => {
 });
 
 // ── START HTTP SERVER ─────────────────────────────
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 AegisTrack API running on http://localhost:${PORT}`);
 });

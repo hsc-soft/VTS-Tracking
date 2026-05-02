@@ -178,7 +178,9 @@ async function processTripDetection(device_id, vehicle_id, data) {
   const stateKey = `trip:active:${device_id}`;
 
   const raw       = await redis.get(stateKey);
-  const tripState = raw ? JSON.parse(raw) : null;
+  const tripState = raw 
+  ? (typeof raw === 'string' ? JSON.parse(raw) : raw) 
+  : null;
 
   const ignitionAvailable = data.ignition !== undefined && data.ignition !== null;
   const isMoving          = data.speed_kmh >= TRIP_MIN_SPEED;

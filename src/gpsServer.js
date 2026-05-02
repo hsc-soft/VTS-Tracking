@@ -16,27 +16,22 @@ function crc16ibm(buf) {
 }
 
 // ── PARSE TELTONIKA CODEC 8 EXTENDED AVL PACKET ──────────────────
-// Returns { numRecords, records } or null on failure/bad CRC.
 function parseCodec8Extended(buffer, imei) {
   try {
     let off = 0;
 
     if (buffer.length < 12) return null;
 
-    // Preamble: 4 zero bytes
     if (buffer.readUInt32BE(off) !== 0) return null;
     off += 4;
 
-    // Data Field Length — covers Codec ID → Number of Data 2
     const dataLen = buffer.readUInt32BE(off);
     off += 4;
 
-    if (buffer.length < 8 + dataLen + 4) return null; // incomplete
+    if (buffer.length < 8 + dataLen + 4) return null;
 
-    // CRC is over the slice: Codec ID … Number of Data 2
     const crcSlice = buffer.subarray(8, 8 + dataLen);
 
-    // Codec ID must be 0x8E for Codec 8 Extended
     const codecId = buffer.readUInt8(off); off += 1;
     if (codecId !== 0x8E) return null;
 
@@ -45,13 +40,9 @@ function parseCodec8Extended(buffer, imei) {
     const records = [];
 
     for (let r = 0; r < numData1; r++) {
-      // ── Timestamp (8 bytes, ms since Unix epoch) ──────────────
       const tsBig = buffer.readBigUInt64BE(off); off += 8;
-
-      // ── Priority (1 byte: 0=Low, 1=High, 2=Panic) ────────────
       const priority = buffer.readUInt8(off); off += 1;
 
-      // ── GPS Element (15 bytes) ────────────────────────────────
       const lonRaw   = buffer.readInt32BE(off);  off += 4;
       const latRaw   = buffer.readInt32BE(off);  off += 4;
       const altitude = buffer.readUInt16BE(off); off += 2;
@@ -59,45 +50,38 @@ function parseCodec8Extended(buffer, imei) {
       const sats     = buffer.readUInt8(off);    off += 1;
       const speed    = buffer.readUInt16BE(off); off += 2;
 
-      // Coordinates are signed integers × 10^-7
       const longitude = lonRaw / 10_000_000;
       const latitude  = latRaw / 10_000_000;
 
-      // ── IO Element ───────────────────────────────────────────
-      off += 2; // Event IO ID (skip — not stored)
-      /* const nTotal = */ buffer.readUInt16BE(off); off += 2;
+      off += 2; // Event IO ID
+      off += 2; // N of Total IO (redundant — N1/N2/N4/N8/NX counts cover it)
 
       const io = {};
 
-      // N1 — 1-byte values
       const n1 = buffer.readUInt16BE(off); off += 2;
       for (let i = 0; i < n1; i++) {
         const id = buffer.readUInt16BE(off); off += 2;
         io[id]   = buffer.readUInt8(off);   off += 1;
       }
 
-      // N2 — 2-byte values
       const n2 = buffer.readUInt16BE(off); off += 2;
       for (let i = 0; i < n2; i++) {
         const id = buffer.readUInt16BE(off);  off += 2;
         io[id]   = buffer.readUInt16BE(off);  off += 2;
       }
 
-      // N4 — 4-byte values
       const n4 = buffer.readUInt16BE(off); off += 2;
       for (let i = 0; i < n4; i++) {
         const id = buffer.readUInt16BE(off);  off += 2;
         io[id]   = buffer.readUInt32BE(off);  off += 4;
       }
 
-      // N8 — 8-byte values
       const n8 = buffer.readUInt16BE(off); off += 2;
       for (let i = 0; i < n8; i++) {
         const id = buffer.readUInt16BE(off);           off += 2;
         io[id]   = Number(buffer.readBigUInt64BE(off)); off += 8;
       }
 
-      // NX — variable-length values
       const nx = buffer.readUInt16BE(off); off += 2;
       for (let i = 0; i < nx; i++) {
         const id  = buffer.readUInt16BE(off); off += 2;
@@ -106,7 +90,6 @@ function parseCodec8Extended(buffer, imei) {
         off += len;
       }
 
-      // AVL ID 239 = Ignition, 66 = External Voltage (mV), 67 = Battery Voltage (mV)
       records.push({
         imei,
         ts:         new Date(Number(tsBig)).toISOString(),
@@ -182,25 +165,12 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 }
 
 // ── TRIP DETECTION ────────────────────────────────────────────────
-//
-// State machine (persisted in Redis as `trip:active:{device_id}`):
-//   no key      → vehicle is stopped / no active trip
-//   key present → trip in progress (trip row already written to DB)
-//
-// Transitions:
-//   ignition OFF → ON   : start trip
-//   ignition ON  → ON   : accumulate stats
-//   ignition ON  → OFF  : close trip
-//   ignition unknown    : fall back to speed threshold (TRIP_MIN_SPEED)
-//
-// GPS-glitch guard: jumps > 2 km between consecutive pings are ignored.
-
-const TRIP_MIN_SPEED        = 3;    // km/h — idle threshold / fallback start signal
-const TRIP_MAX_JUMP_KM      = 2;    // km   — GPS glitch guard
-const OVERSPEED_THRESHOLD   = 60;   // km/h — threshold for counting an overspeed event
-const HARSH_BRAKE_THRESHOLD = 25;   // km/h drop between consecutive pings = harsh braking
-const FUEL_L_PER_KM         = 0.10; // L/km while moving  (≈ 10 L / 100 km default)
-const FUEL_IDLE_L_PER_HOUR  = 0.50; // L/h  while idling
+const TRIP_MIN_SPEED        = 3;
+const TRIP_MAX_JUMP_KM      = 2;
+const OVERSPEED_THRESHOLD   = 60;
+const HARSH_BRAKE_THRESHOLD = 25;
+const FUEL_L_PER_KM         = 0.10;
+const FUEL_IDLE_L_PER_HOUR  = 0.50;
 
 async function processTripDetection(device_id, vehicle_id, data) {
   if (!vehicle_id) return;
@@ -228,20 +198,22 @@ async function processTripDetection(device_id, vehicle_id, data) {
     );
 
     const newState = {
-      trip_id:      result.rows[0].id,
-      start_ts:     data.ts,
-      last_lat:     data.latitude,
-      last_lng:     data.longitude,
-      last_ts:      data.ts,
-      distance_km:  0,
-      max_speed:    data.speed_kmh,
-      idle_seconds: 0,
+      trip_id:       result.rows[0].id,
+      start_ts:      data.ts,
+      last_lat:      data.latitude,
+      last_lng:      data.longitude,
+      last_ts:       data.ts,
+      distance_km:   0,
+      max_speed:     data.speed_kmh,
+      idle_seconds:  0,
       harsh_braking: 0,
-      overspeeds:   0,
-      in_overspeed: data.speed_kmh > OVERSPEED_THRESHOLD,
-      prev_speed:   data.speed_kmh
+      overspeeds:    0,
+      in_overspeed:  data.speed_kmh > OVERSPEED_THRESHOLD,
+      prev_speed:    data.speed_kmh
     };
-    await redis.set(stateKey, JSON.stringify(newState));
+
+    // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
+    await redis.set(stateKey, JSON.stringify(newState), { ex: 86400 });
 
     console.log(`🚗 Trip STARTED — Vehicle: ${vehicle_id} | Trip ID: ${newState.trip_id}`);
     return;
@@ -249,13 +221,11 @@ async function processTripDetection(device_id, vehicle_id, data) {
 
   // ── UPDATE ────────────────────────────────────────────────────
   if (tripShouldStart && tripState) {
-    // Time elapsed since last ping (seconds)
     const segSec = Math.max(
       0,
       (new Date(data.ts) - new Date(tripState.last_ts)) / 1000
     );
 
-    // Distance — ignore GPS glitches
     const seg = haversineKm(
       tripState.last_lat, tripState.last_lng,
       data.latitude,      data.longitude
@@ -264,23 +234,19 @@ async function processTripDetection(device_id, vehicle_id, data) {
       tripState.distance_km += seg;
     }
 
-    // Max speed
     if (data.speed_kmh > tripState.max_speed) {
       tripState.max_speed = data.speed_kmh;
     }
 
-    // Idle: engine on but vehicle not moving
     if (data.speed_kmh < TRIP_MIN_SPEED) {
       tripState.idle_seconds += segSec;
     }
 
-    // Harsh braking: speed drops ≥ threshold between consecutive pings
     const speedDrop = tripState.prev_speed - data.speed_kmh;
     if (speedDrop >= HARSH_BRAKE_THRESHOLD && tripState.prev_speed > 10) {
       tripState.harsh_braking++;
     }
 
-    // Overspeed: count each transition from normal → over-speed
     if (data.speed_kmh > OVERSPEED_THRESHOLD) {
       if (!tripState.in_overspeed) {
         tripState.overspeeds++;
@@ -295,7 +261,8 @@ async function processTripDetection(device_id, vehicle_id, data) {
     tripState.last_lng   = data.longitude;
     tripState.last_ts    = data.ts;
 
-    await redis.set(stateKey, JSON.stringify(tripState));
+    // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
+    await redis.set(stateKey, JSON.stringify(tripState), { ex: 86400 });
     return;
   }
 
@@ -363,7 +330,6 @@ async function processTripDetection(device_id, vehicle_id, data) {
 // ── SAVE GPS PING TO DATABASE + REDIS ────────────────────────────
 async function savePing(data) {
   try {
-    // Fetch device + linked vehicle in one query
     const deviceResult = await db.query(
       `SELECT d.id AS device_id, v.id AS vehicle_id
        FROM devices d
@@ -398,14 +364,15 @@ async function savePing(data) {
       battery:  data.battery_v || null,
       ts:       data.ts
     };
-    await redis.setex(`device:${data.imei}`, 300, JSON.stringify(liveData));
 
-    if (data.speed_kmh > 60) {
-      await triggerAlert(device_id, 'overspeed', 'warning', data.speed_kmh,
+    // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
+    await redis.set(`device:${data.imei}`, JSON.stringify(liveData), { ex: 300 });
+
+    if (vehicle_id && data.speed_kmh > OVERSPEED_THRESHOLD) {
+      await triggerAlert(vehicle_id, 'overspeed', 'warning', data.speed_kmh,
                          data.latitude, data.longitude);
     }
 
-    // Trip detection runs after every ping
     await processTripDetection(device_id, vehicle_id, data);
 
     console.log(
@@ -421,15 +388,8 @@ async function savePing(data) {
 }
 
 // ── TRIGGER ALERT ─────────────────────────────────────────────────
-async function triggerAlert(device_id, alert_type, severity, value, lat, lng) {
+async function triggerAlert(vehicle_id, alert_type, severity, value, lat, lng) {
   try {
-    const v = await db.query(
-      `SELECT id FROM vehicles WHERE device_id = $1`, [device_id]
-    );
-    if (v.rows.length === 0) return;
-
-    const vehicle_id = v.rows[0].id;
-
     const existing = await db.query(
       `SELECT id FROM alerts
        WHERE vehicle_id = $1 AND alert_type = $2
@@ -467,78 +427,90 @@ function startGPSServer(port) {
     let buf      = Buffer.alloc(0);
     let textMode = false;
 
+    const MAX_BUF = 65_536; // 64 KB — drop connection if a client sends garbage this large
+
     socket.on('data', async (chunk) => {
-      buf = Buffer.concat([buf, chunk]);
+      // Pause prevents a second 'data' event from firing while we await savePing(),
+      // which would corrupt the shared `buf` state.
+      socket.pause();
+      try {
+        buf = Buffer.concat([buf, chunk]);
 
-      // ── Text / OsmAnd detection ───────────────────────────────
-      if (!imei && !textMode) {
-        const preview = buf.toString('utf8');
-        if (preview.includes('lat=') || preview.includes('id=')) {
-          textMode = true;
-        }
-      }
-
-      if (textMode) {
-        const parsed = parseTextPacket(buf.toString('utf8'));
-        if (parsed) {
-          await savePing(parsed);
-          socket.write('OK\r\n');
-        }
-        buf = Buffer.alloc(0);
-        return;
-      }
-
-      // ── Teltonika IMEI handshake ──────────────────────────────
-      if (!imei) {
-        if (buf.length < 2) return;
-
-        const imeiLen = buf.readUInt16BE(0);
-        if (buf.length < 2 + imeiLen) return;
-
-        const candidate = buf.subarray(2, 2 + imeiLen).toString('ascii');
-        if (imeiLen >= 10 && imeiLen <= 20 && /^\d+$/.test(candidate)) {
-          imei = candidate;
-          buf  = buf.subarray(2 + imeiLen);
-          console.log(`🔑 Teltonika IMEI accepted: ${imei} from ${clientIP}`);
-          socket.write(Buffer.from([0x01]));
-        } else {
-          console.warn(`[Teltonika] Invalid IMEI from ${clientIP} — rejecting`);
-          socket.write(Buffer.from([0x00]));
+        if (buf.length > MAX_BUF) {
+          console.warn(`[GPS] Buffer overflow from ${imei || clientIP} — closing`);
           socket.destroy();
           return;
         }
 
-        if (buf.length === 0) return;
-      }
-
-      // ── Codec 8 Extended AVL packets ─────────────────────────
-      while (buf.length >= 8) {
-        if (buf.readUInt32BE(0) !== 0) {
-          console.warn(`[Teltonika] Bad preamble from ${imei} — dropping 1 byte`);
-          buf = buf.subarray(1);
-          continue;
-        }
-
-        const dataLen       = buf.readUInt32BE(4);
-        const totalExpected = 8 + dataLen + 4;
-
-        if (buf.length < totalExpected) break;
-
-        const packet = buf.subarray(0, totalExpected);
-        buf          = buf.subarray(totalExpected);
-
-        const result = parseCodec8Extended(packet, imei);
-        if (result) {
-          for (const record of result.records) {
-            await savePing(record);
+        if (!imei && !textMode) {
+          const preview = buf.toString('utf8');
+          if (preview.includes('lat=') || preview.includes('id=')) {
+            textMode = true;
           }
-          const ack = Buffer.allocUnsafe(4);
-          ack.writeUInt32BE(result.numRecords);
-          socket.write(ack);
-          console.log(`✅ ACK ${result.numRecords} record(s) — IMEI: ${imei}`);
-        } else {
-          console.warn(`⚠️  Invalid Codec8Ext packet from ${imei || clientIP}`);
         }
+
+        if (textMode) {
+          const parsed = parseTextPacket(buf.toString('utf8'));
+          if (parsed) {
+            await savePing(parsed);
+            socket.write('OK\r\n');
+          }
+          buf = Buffer.alloc(0);
+          return;
+        }
+
+        if (!imei) {
+          if (buf.length < 2) return;
+
+          const imeiLen = buf.readUInt16BE(0);
+          if (buf.length < 2 + imeiLen) return;
+
+          const candidate = buf.subarray(2, 2 + imeiLen).toString('ascii');
+          if (imeiLen >= 10 && imeiLen <= 20 && /^\d+$/.test(candidate)) {
+            imei = candidate;
+            buf  = buf.subarray(2 + imeiLen);
+            console.log(`🔑 Teltonika IMEI accepted: ${imei} from ${clientIP}`);
+            socket.write(Buffer.from([0x01]));
+          } else {
+            console.warn(`[Teltonika] Invalid IMEI from ${clientIP} — rejecting`);
+            socket.write(Buffer.from([0x00]));
+            socket.destroy();
+            return;
+          }
+
+          if (buf.length === 0) return;
+        }
+
+        while (buf.length >= 8) {
+          if (buf.readUInt32BE(0) !== 0) {
+            console.warn(`[Teltonika] Bad preamble from ${imei} — dropping 1 byte`);
+            buf = buf.subarray(1);
+            continue;
+          }
+
+          const dataLen       = buf.readUInt32BE(4);
+          const totalExpected = 8 + dataLen + 4;
+
+          if (buf.length < totalExpected) break;
+
+          const packet = buf.subarray(0, totalExpected);
+          buf          = buf.subarray(totalExpected);
+
+          const result = parseCodec8Extended(packet, imei);
+          if (result) {
+            for (const record of result.records) {
+              await savePing(record);
+            }
+            const ack = Buffer.allocUnsafe(4);
+            ack.writeUInt32BE(result.numRecords);
+            socket.write(ack);
+            console.log(`✅ ACK ${result.numRecords} record(s) — IMEI: ${imei}`);
+          } else {
+            console.warn(`⚠️  Invalid Codec8Ext packet from ${imei || clientIP}`);
+          }
+        }
+      } finally {
+        socket.resume();
       }
     });
 

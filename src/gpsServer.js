@@ -377,7 +377,12 @@ async function savePing(data) {
         data.latitude, data.longitude);
     }
 
-    await processTripDetection(device_id, vehicle_id, data);
+    // Trip detection is non-critical — a Redis failure must not prevent ping save
+    try {
+      await processTripDetection(device_id, vehicle_id, data);
+    } catch (tripErr) {
+      console.warn(`⚠️  Trip detection skipped for ${data.imei}:`, tripErr.message);
+    }
 
     console.log(
       `📍 Ping — IMEI: ${data.imei} | ` +
@@ -519,7 +524,17 @@ function startGPSServer(port) {
     });
 
     socket.on('error', (err) => {
-      console.error(`❌ Socket error (${imei || clientIP}):`, err.message);
+      // ETIMEDOUT / ECONNRESET are normal when a device drops off a mobile network
+      if (err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET') {
+        console.log(`📴 Device dropped (${err.code}): ${imei || clientIP}`);
+      } else {
+        console.error(`❌ Socket error (${imei || clientIP}):`, err.message);
+      }
+    });
+
+    socket.on('timeout', () => {
+      console.log(`⏱️  Idle timeout — closing: ${imei || clientIP}`);
+      socket.destroy();
     });
 
     socket.on('close', () => {
@@ -527,6 +542,7 @@ function startGPSServer(port) {
     });
 
     socket.setKeepAlive(true, 30000);
+    socket.setTimeout(120_000); // destroy after 2 min of no data
   });
 
   server.listen(port, () => {

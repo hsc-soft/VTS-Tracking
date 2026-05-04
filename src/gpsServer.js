@@ -1,5 +1,5 @@
-const net   = require('net');
-const db    = require('./db');
+const net = require('net');
+const db = require('./db');
 const redis = require('./redis');
 
 // ── CRC-16/IBM (a.k.a. CRC-16/ARC) ──────────────────────────────
@@ -43,15 +43,15 @@ function parseCodec8Extended(buffer, imei) {
       const tsBig = buffer.readBigUInt64BE(off); off += 8;
       const priority = buffer.readUInt8(off); off += 1;
 
-      const lonRaw   = buffer.readInt32BE(off);  off += 4;
-      const latRaw   = buffer.readInt32BE(off);  off += 4;
+      const lonRaw = buffer.readInt32BE(off); off += 4;
+      const latRaw = buffer.readInt32BE(off); off += 4;
       const altitude = buffer.readUInt16BE(off); off += 2;
-      const angle    = buffer.readUInt16BE(off); off += 2;
-      const sats     = buffer.readUInt8(off);    off += 1;
-      const speed    = buffer.readUInt16BE(off); off += 2;
+      const angle = buffer.readUInt16BE(off); off += 2;
+      const sats = buffer.readUInt8(off); off += 1;
+      const speed = buffer.readUInt16BE(off); off += 2;
 
       const longitude = lonRaw / 10_000_000;
-      const latitude  = latRaw / 10_000_000;
+      const latitude = latRaw / 10_000_000;
 
       off += 2; // Event IO ID
       off += 2; // N of Total IO (redundant — N1/N2/N4/N8/NX counts cover it)
@@ -61,49 +61,49 @@ function parseCodec8Extended(buffer, imei) {
       const n1 = buffer.readUInt16BE(off); off += 2;
       for (let i = 0; i < n1; i++) {
         const id = buffer.readUInt16BE(off); off += 2;
-        io[id]   = buffer.readUInt8(off);   off += 1;
+        io[id] = buffer.readUInt8(off); off += 1;
       }
 
       const n2 = buffer.readUInt16BE(off); off += 2;
       for (let i = 0; i < n2; i++) {
-        const id = buffer.readUInt16BE(off);  off += 2;
-        io[id]   = buffer.readUInt16BE(off);  off += 2;
+        const id = buffer.readUInt16BE(off); off += 2;
+        io[id] = buffer.readUInt16BE(off); off += 2;
       }
 
       const n4 = buffer.readUInt16BE(off); off += 2;
       for (let i = 0; i < n4; i++) {
-        const id = buffer.readUInt16BE(off);  off += 2;
-        io[id]   = buffer.readUInt32BE(off);  off += 4;
+        const id = buffer.readUInt16BE(off); off += 2;
+        io[id] = buffer.readUInt32BE(off); off += 4;
       }
 
       const n8 = buffer.readUInt16BE(off); off += 2;
       for (let i = 0; i < n8; i++) {
-        const id = buffer.readUInt16BE(off);           off += 2;
-        io[id]   = Number(buffer.readBigUInt64BE(off)); off += 8;
+        const id = buffer.readUInt16BE(off); off += 2;
+        io[id] = Number(buffer.readBigUInt64BE(off)); off += 8;
       }
 
       const nx = buffer.readUInt16BE(off); off += 2;
       for (let i = 0; i < nx; i++) {
-        const id  = buffer.readUInt16BE(off); off += 2;
+        const id = buffer.readUInt16BE(off); off += 2;
         const len = buffer.readUInt16BE(off); off += 2;
-        io[id]    = buffer.subarray(off, off + len).toString('hex');
+        io[id] = buffer.subarray(off, off + len).toString('hex');
         off += len;
       }
 
       records.push({
         imei,
-        ts:         new Date(Number(tsBig)).toISOString(),
+        ts: new Date(Number(tsBig)).toISOString(),
         latitude,
         longitude,
         altitude,
-        heading:    angle,
+        heading: angle,
         satellites: sats,
-        speed_kmh:  speed,
+        speed_kmh: speed,
         priority,
-        ignition:   io[239] === 1,
-        battery_v:  io[67] != null ? io[67]  / 1000 : null,
-        ext_v:      io[66] != null ? io[66]  / 1000 : null,
-        protocol:   'codec8ext',
+        ignition: io[239] === 1,
+        battery_v: io[67] != null ? io[67] / 1000 : null,
+        ext_v: io[66] != null ? io[66] / 1000 : null,
+        protocol: 'codec8ext',
         io
       });
     }
@@ -114,11 +114,11 @@ function parseCodec8Extended(buffer, imei) {
     }
 
     const receivedCrc = buffer.readUInt32BE(off);
-    const calcCrc     = crc16ibm(crcSlice);
+    const calcCrc = crc16ibm(crcSlice);
     if (calcCrc !== (receivedCrc & 0xFFFF)) {
       console.warn(
-        `[Teltonika] CRC mismatch — calc: 0x${calcCrc.toString(16).padStart(4,'0')}` +
-        ` recv: 0x${(receivedCrc & 0xFFFF).toString(16).padStart(4,'0')}`
+        `[Teltonika] CRC mismatch — calc: 0x${calcCrc.toString(16).padStart(4, '0')}` +
+        ` recv: 0x${(receivedCrc & 0xFFFF).toString(16).padStart(4, '0')}`
       );
       return null;
     }
@@ -134,20 +134,22 @@ function parseCodec8Extended(buffer, imei) {
 // ── PARSE PLAIN TEXT / OSMAND FORMAT ─────────────────────────────
 function parseTextPacket(text) {
   try {
-    const params    = new URLSearchParams(text.trim());
-    const imei      = params.get('id')       || params.get('imei');
-    const latitude  = parseFloat(params.get('lat')  || params.get('latitude')  || 0);
-    const longitude = parseFloat(params.get('lon')  || params.get('longitude') || 0);
-    const speed     = parseFloat(params.get('speed') || 0);
-    const heading   = parseFloat(params.get('heading') || params.get('bearing') || 0);
-    const ignition  = params.get('ignition') === '1' || params.get('ignition') === 'true';
-    const battery   = parseFloat(params.get('batt') || params.get('battery') || 0);
+    const params = new URLSearchParams(text.trim());
+    const imei = params.get('id') || params.get('imei');
+    const latitude = parseFloat(params.get('lat') || params.get('latitude') || 0);
+    const longitude = parseFloat(params.get('lon') || params.get('longitude') || 0);
+    const speed = parseFloat(params.get('speed') || 0);
+    const heading = parseFloat(params.get('heading') || params.get('bearing') || 0);
+    const ignition = params.get('ignition') === '1' || params.get('ignition') === 'true';
+    const battery = parseFloat(params.get('batt') || params.get('battery') || 0);
 
     if (!imei || !latitude || !longitude) return null;
 
-    return { imei, latitude, longitude, speed_kmh: speed,
-             heading, ignition, battery_v: battery,
-             ts: new Date().toISOString(), protocol: 'text' };
+    return {
+      imei, latitude, longitude, speed_kmh: speed,
+      heading, ignition, battery_v: battery,
+      ts: new Date().toISOString(), protocol: 'text'
+    };
   } catch {
     return null;
   }
@@ -155,37 +157,37 @@ function parseTextPacket(text) {
 
 // ── HAVERSINE DISTANCE (km) ───────────────────────────────────────
 function haversineKm(lat1, lon1, lat2, lon2) {
-  const R    = 6371;
+  const R = 6371;
   const toRad = d => d * Math.PI / 180;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
-  const a    = Math.sin(dLat / 2) ** 2 +
-               Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // ── TRIP DETECTION ────────────────────────────────────────────────
-const TRIP_MIN_SPEED        = 3;
-const TRIP_MAX_JUMP_KM      = 2;
-const OVERSPEED_THRESHOLD   = 60;
+const TRIP_MIN_SPEED = 3;
+const TRIP_MAX_JUMP_KM = 2;
+const OVERSPEED_THRESHOLD = 60;
 const HARSH_BRAKE_THRESHOLD = 25;
-const FUEL_L_PER_KM         = 0.10;
-const FUEL_IDLE_L_PER_HOUR  = 0.50;
+const FUEL_L_PER_KM = 0.10;
+const FUEL_IDLE_L_PER_HOUR = 0.50;
 
 async function processTripDetection(device_id, vehicle_id, data) {
   if (!vehicle_id) return;
 
   const stateKey = `trip:active:${device_id}`;
 
-  const raw       = await redis.get(stateKey);
-  const tripState = raw 
-  ? (typeof raw === 'string' ? JSON.parse(raw) : raw) 
-  : null;
+  const raw = await redis.get(stateKey);
+  const tripState = raw
+    ? (typeof raw === 'string' ? JSON.parse(raw) : raw)
+    : null;
 
   const ignitionAvailable = data.ignition !== undefined && data.ignition !== null;
-  const isMoving          = data.speed_kmh >= TRIP_MIN_SPEED;
-  const tripShouldStart   = ignitionAvailable ? data.ignition === true  : isMoving;
-  const tripShouldEnd     = ignitionAvailable ? data.ignition === false : !isMoving;
+  const isMoving = data.speed_kmh >= TRIP_MIN_SPEED;
+  const tripShouldStart = ignitionAvailable ? data.ignition === true : isMoving;
+  const tripShouldEnd = ignitionAvailable ? data.ignition === false : !isMoving;
 
   // ── START ─────────────────────────────────────────────────────
   if (tripShouldStart && !tripState) {
@@ -200,18 +202,18 @@ async function processTripDetection(device_id, vehicle_id, data) {
     );
 
     const newState = {
-      trip_id:       result.rows[0].id,
-      start_ts:      data.ts,
-      last_lat:      data.latitude,
-      last_lng:      data.longitude,
-      last_ts:       data.ts,
-      distance_km:   0,
-      max_speed:     data.speed_kmh,
-      idle_seconds:  0,
+      trip_id: result.rows[0].id,
+      start_ts: data.ts,
+      last_lat: data.latitude,
+      last_lng: data.longitude,
+      last_ts: data.ts,
+      distance_km: 0,
+      max_speed: data.speed_kmh,
+      idle_seconds: 0,
       harsh_braking: 0,
-      overspeeds:    0,
-      in_overspeed:  data.speed_kmh > OVERSPEED_THRESHOLD,
-      prev_speed:    data.speed_kmh
+      overspeeds: 0,
+      in_overspeed: data.speed_kmh > OVERSPEED_THRESHOLD,
+      prev_speed: data.speed_kmh
     };
 
     // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
@@ -230,7 +232,7 @@ async function processTripDetection(device_id, vehicle_id, data) {
 
     const seg = haversineKm(
       tripState.last_lat, tripState.last_lng,
-      data.latitude,      data.longitude
+      data.latitude, data.longitude
     );
     if (seg <= TRIP_MAX_JUMP_KM) {
       tripState.distance_km += seg;
@@ -259,9 +261,9 @@ async function processTripDetection(device_id, vehicle_id, data) {
     }
 
     tripState.prev_speed = data.speed_kmh;
-    tripState.last_lat   = data.latitude;
-    tripState.last_lng   = data.longitude;
-    tripState.last_ts    = data.ts;
+    tripState.last_lat = data.latitude;
+    tripState.last_lng = data.longitude;
+    tripState.last_ts = data.ts;
 
     // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
     await redis.set(stateKey, JSON.stringify(tripState), { ex: 86400 });
@@ -282,7 +284,7 @@ async function processTripDetection(device_id, vehicle_id, data) {
     const idle_minutes = parseFloat((tripState.idle_seconds / 60).toFixed(2));
 
     const fuel_used_l = parseFloat((
-      tripState.distance_km  * FUEL_L_PER_KM +
+      tripState.distance_km * FUEL_L_PER_KM +
       (tripState.idle_seconds / 3600) * FUEL_IDLE_L_PER_HOUR
     ).toFixed(3));
 
@@ -353,18 +355,18 @@ async function savePing(data) {
           heading, ignition, battery_v, is_valid)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [device_id, data.ts, data.latitude, data.longitude,
-       data.speed_kmh || 0, data.heading || 0,
-       data.ignition  || false, data.battery_v || null, true]
+        data.speed_kmh || 0, data.heading || 0,
+        data.ignition || false, data.battery_v || null, true]
     );
 
     const liveData = {
-      lat:      data.latitude,
-      lng:      data.longitude,
-      speed:    data.speed_kmh || 0,
-      heading:  data.heading   || 0,
-      ignition: data.ignition  || false,
-      battery:  data.battery_v || null,
-      ts:       data.ts
+      lat: data.latitude,
+      lng: data.longitude,
+      speed: data.speed_kmh || 0,
+      heading: data.heading || 0,
+      ignition: data.ignition || false,
+      battery: data.battery_v || null,
+      ts: data.ts
     };
 
     // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
@@ -372,7 +374,7 @@ async function savePing(data) {
 
     if (vehicle_id && data.speed_kmh > OVERSPEED_THRESHOLD) {
       await triggerAlert(vehicle_id, 'overspeed', 'warning', data.speed_kmh,
-                         data.latitude, data.longitude);
+        data.latitude, data.longitude);
     }
 
     await processTripDetection(device_id, vehicle_id, data);
@@ -385,7 +387,7 @@ async function savePing(data) {
     );
 
   } catch (err) {
-    console.error('❌ Save ping error:', err.message);
+    console.error('❌ Save ping error:', err.message,err.stack);
   }
 }
 
@@ -425,8 +427,8 @@ function startGPSServer(port) {
     const clientIP = socket.remoteAddress;
     console.log(`📡 Device connected: ${clientIP}`);
 
-    let imei     = null;
-    let buf      = Buffer.alloc(0);
+    let imei = null;
+    let buf = Buffer.alloc(0);
     let textMode = false;
 
     const MAX_BUF = 65_536; // 64 KB — drop connection if a client sends garbage this large
@@ -470,7 +472,7 @@ function startGPSServer(port) {
           const candidate = buf.subarray(2, 2 + imeiLen).toString('ascii');
           if (imeiLen >= 10 && imeiLen <= 20 && /^\d+$/.test(candidate)) {
             imei = candidate;
-            buf  = buf.subarray(2 + imeiLen);
+            buf = buf.subarray(2 + imeiLen);
             console.log(`🔑 Teltonika IMEI accepted: ${imei} from ${clientIP}`);
             socket.write(Buffer.from([0x01]));
           } else {
@@ -490,13 +492,13 @@ function startGPSServer(port) {
             continue;
           }
 
-          const dataLen       = buf.readUInt32BE(4);
+          const dataLen = buf.readUInt32BE(4);
           const totalExpected = 8 + dataLen + 4;
 
           if (buf.length < totalExpected) break;
 
           const packet = buf.subarray(0, totalExpected);
-          buf          = buf.subarray(totalExpected);
+          buf = buf.subarray(totalExpected);
 
           const result = parseCodec8Extended(packet, imei);
           if (result) {

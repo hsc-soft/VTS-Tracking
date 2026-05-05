@@ -4,9 +4,10 @@ const cors    = require('cors');
 
 const { startGPSServer } = require('./gpsServer');
 
-const authRoutes     = require('./routes/auth');
-const vehicleRoutes  = require('./routes/vehicles');
-const alertRoutes    = require('./routes/alerts');
+const authRoutes      = require('./routes/auth');
+const vehicleRoutes   = require('./routes/vehicles');
+const alertRoutes     = require('./routes/alerts');
+const geofenceRoutes  = require('./routes/geofences');
 
 const app = express();
 
@@ -16,9 +17,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── ROUTES ────────────────────────────────────────
-app.use('/api/auth',     authRoutes);
-app.use('/api/vehicles', vehicleRoutes);
-app.use('/api/alerts',   alertRoutes);
+app.use('/api/auth',      authRoutes);
+app.use('/api/vehicles',  vehicleRoutes);
+app.use('/api/alerts',    alertRoutes);
+app.use('/api/geofences', geofenceRoutes);
 
 // ── HEALTH CHECK ──────────────────────────────────
 app.get('/', (req, res) => {

@@ -166,6 +166,115 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// ── GEOMETRY HELPERS ─────────────────────────────────────────────
+
+function isInsideCircle(lat, lng, cLat, cLng, radiusM) {
+  return haversineKm(lat, lng, cLat, cLng) * 1000 <= radiusM;
+}
+
+// Ray-casting algorithm for point-in-polygon
+function isInsidePolygon(lat, lng, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng, yi = polygon[i].lat;
+    const xj = polygon[j].lng, yj = polygon[j].lat;
+    if (((yi > lat) !== (yj > lat)) &&
+        (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// Load active geofences for an account, cached in Redis for 60 s
+async function loadGeofences(account_id) {
+  const cacheKey = `geofences:${account_id}`;
+  const cached   = await redis.get(cacheKey);
+  if (cached) return typeof cached === 'string' ? JSON.parse(cached) : cached;
+
+  const result = await db.query(
+    `SELECT id, name, geofence_type, center_lat, center_lng, radius_m,
+            coordinates, trigger_on, speed_limit, color
+     FROM geofences
+     WHERE account_id = $1 AND is_active = true`,
+    [account_id]
+  );
+  await redis.set(cacheKey, JSON.stringify(result.rows), { ex: 60 });
+  return result.rows;
+}
+
+// ── GEOFENCE DETECTION ────────────────────────────────────────────
+//
+// Redis key `gf:state:{vehicle_id}` stores a map of { geofence_id: true/false }
+// (true = currently inside). On first-ever ping the state is established without
+// firing any event, so we don't get a spurious ENTER for a vehicle that has been
+// parked inside a zone all along.
+
+async function processGeofenceDetection(vehicle_id, account_id, data) {
+  if (!vehicle_id || !account_id) return;
+
+  const geofences = await loadGeofences(account_id);
+  if (geofences.length === 0) return;
+
+  const stateKey = `gf:state:${vehicle_id}`;
+  const rawState = await redis.get(stateKey);
+  const prevState = rawState
+    ? (typeof rawState === 'string' ? JSON.parse(rawState) : rawState)
+    : null; // null = first ping ever
+
+  const newState = {};
+
+  for (const gf of geofences) {
+    let inside = false;
+    const coords = typeof gf.coordinates === 'string'
+      ? JSON.parse(gf.coordinates)
+      : gf.coordinates;
+
+    if (gf.geofence_type === 'circle') {
+      inside = isInsideCircle(
+        data.latitude, data.longitude,
+        gf.center_lat, gf.center_lng, gf.radius_m
+      );
+    } else if (Array.isArray(coords) && coords.length >= 3) {
+      inside = isInsidePolygon(data.latitude, data.longitude, coords);
+    }
+
+    newState[gf.id] = inside;
+
+    if (prevState === null) continue; // first ping — just record state, no event
+
+    const wasInside = prevState[gf.id] ?? false;
+    const triggerOn = gf.trigger_on || 'both'; // 'enter', 'exit', or 'both'
+
+    if (!wasInside && inside && (triggerOn === 'enter' || triggerOn === 'both')) {
+      await fireGeofenceEvent(gf, vehicle_id, 'enter', data);
+    } else if (wasInside && !inside && (triggerOn === 'exit' || triggerOn === 'both')) {
+      await fireGeofenceEvent(gf, vehicle_id, 'exit', data);
+    }
+  }
+
+  await redis.set(stateKey, JSON.stringify(newState), { ex: 86400 });
+}
+
+async function fireGeofenceEvent(gf, vehicle_id, event_type, data) {
+  await db.query(
+    `INSERT INTO geofence_events
+       (geofence_id, vehicle_id, event_type, lat, lng, occurred_at)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [gf.id, vehicle_id, event_type, data.latitude, data.longitude, data.ts]
+  );
+
+  await triggerAlert(vehicle_id, `geofence_${event_type}`, 'info',
+                     gf.name, data.latitude, data.longitude);
+
+  await redis.publish(`geofence:${vehicle_id}`, JSON.stringify({
+    event_type, geofence_id: gf.id, geofence_name: gf.name,
+    lat: data.latitude, lng: data.longitude, ts: data.ts
+  }));
+
+  console.log(`🔲 Geofence ${event_type.toUpperCase()} — Vehicle: ${vehicle_id} | Zone: "${gf.name}"`);
+}
+
 // ── TRIP DETECTION ────────────────────────────────────────────────
 const TRIP_MIN_SPEED = 3;
 const TRIP_MAX_JUMP_KM = 2;
@@ -335,7 +444,7 @@ async function processTripDetection(device_id, vehicle_id, data) {
 async function savePing(data) {
   try {
     const deviceResult = await db.query(
-      `SELECT d.id AS device_id, v.id AS vehicle_id
+      `SELECT d.id AS device_id, v.id AS vehicle_id, v.account_id
        FROM devices d
        LEFT JOIN vehicles v ON v.device_id = d.id
        WHERE d.imei = $1 AND d.is_active = true`,
@@ -347,7 +456,7 @@ async function savePing(data) {
       return;
     }
 
-    const { device_id, vehicle_id } = deviceResult.rows[0];
+    const { device_id, vehicle_id, account_id } = deviceResult.rows[0];
 
     await db.query(
       `INSERT INTO gps_pings
@@ -377,11 +486,17 @@ async function savePing(data) {
         data.latitude, data.longitude);
     }
 
-    // Trip detection is non-critical — a Redis failure must not prevent ping save
+    // Trip and geofence detection are non-critical — Redis failures must not prevent ping save
     try {
       await processTripDetection(device_id, vehicle_id, data);
     } catch (tripErr) {
       console.warn(`⚠️  Trip detection skipped for ${data.imei}:`, tripErr.message);
+    }
+
+    try {
+      await processGeofenceDetection(vehicle_id, account_id, data);
+    } catch (gfErr) {
+      console.warn(`⚠️  Geofence detection skipped for ${data.imei}:`, gfErr.message);
     }
 
     console.log(

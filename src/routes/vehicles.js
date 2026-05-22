@@ -170,6 +170,7 @@ router.get('/:id/history', auth, async (req, res) => {
        FROM gps_pings
        WHERE device_id = $1
          AND ts BETWEEN $2 AND $3
+         AND is_valid = true
        ORDER BY ts ASC
        LIMIT 5000`,
       [vehicle.rows[0].device_id,

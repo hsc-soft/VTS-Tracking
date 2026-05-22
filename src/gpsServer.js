@@ -100,7 +100,7 @@ function parseCodec8Extended(buffer, imei) {
         satellites: sats,
         speed_kmh: speed,
         priority,
-        ignition: io[239] === 1,
+        ignition: io[239] != null ? io[239] === 1 : null,
         battery_v: io[67] != null ? io[67] / 1000 : null,
         ext_v: io[66] != null ? io[66] / 1000 : null,
         protocol: 'codec8ext',
@@ -164,6 +164,17 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   const a = Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ── GPS VALIDITY CHECK ────────────────────────────────────────────
+// Returns false for pings the device sends when it has no satellite fix.
+// Per Teltonika spec: no-fix records have satellites=0 and speed=0;
+// coordinates may be (0,0) or the last known position — both unreliable.
+function isValidGPS(lat, lng, satellites) {
+  if (lat === 0 && lng === 0) return false;            // null island
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false; // out of range
+  if (satellites === 0) return false;                  // no satellite fix
+  return true;
 }
 
 // ── GEOMETRY HELPERS ─────────────────────────────────────────────
@@ -287,18 +298,22 @@ const DEFAULTS = {
   fuelLPerKm:            0.10, // L/km while moving
   fuelIdleLPerHour:      0.50, // L/h  while idling
   excessiveIdleMinutes:  5,    // minutes of continuous idle before alert fires
+  tripEndDebounceSec:    60,   // seconds ignition-off must hold before trip closes
 };
 
 // Map each setting to the Teltonika AVL IO ID that carries it.
 // Set to null to always use the server default for that setting.
 // Update these IDs to match your Teltonika Configurator setup.
 const IO_CONFIG_IDS = {
-  overspeedThreshold:   183,  // AVL 183 — configured speed limit (km/h)
-  harshBrakeThreshold:  null, // not standard — uses default
-  tripMinSpeed:         null, // not standard — uses default
-  fuelLPerKm:           null, // not standard — uses default
-  fuelIdleLPerHour:     null, // not standard — uses default
-  excessiveIdleMinutes: null, // not standard — uses default
+  // AVL 183 is the current speed reading, NOT a speed-limit threshold — leave null
+  // To override, set this to the IO ID your device uses for configured speed limit
+  overspeedThreshold:   null,
+  harshBrakeThreshold:  null,
+  tripMinSpeed:         null,
+  fuelLPerKm:           null,
+  fuelIdleLPerHour:     null,
+  excessiveIdleMinutes: null,
+  tripEndDebounceSec:   null,
 };
 
 // Merge device IO values with server defaults.
@@ -315,6 +330,7 @@ function resolveConfig(io = {}) {
     fuelLPerKm:            pick(IO_CONFIG_IDS.fuelLPerKm,            DEFAULTS.fuelLPerKm),
     fuelIdleLPerHour:      pick(IO_CONFIG_IDS.fuelIdleLPerHour,      DEFAULTS.fuelIdleLPerHour),
     excessiveIdleMinutes:  pick(IO_CONFIG_IDS.excessiveIdleMinutes,  DEFAULTS.excessiveIdleMinutes),
+    tripEndDebounceSec:    pick(IO_CONFIG_IDS.tripEndDebounceSec,    DEFAULTS.tripEndDebounceSec),
   };
 }
 
@@ -328,13 +344,14 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
     ? (typeof raw === 'string' ? JSON.parse(raw) : raw)
     : null;
 
-  const ignitionAvailable = data.ignition !== undefined && data.ignition !== null;
-  const isMoving = data.speed_kmh >= cfg.tripMinSpeed;
-  const tripShouldStart = ignitionAvailable ? data.ignition === true : isMoving;
-  const tripShouldEnd = ignitionAvailable ? data.ignition === false : !isMoving;
+  // null means AVL 239 was not present in this packet — don't treat as OFF
+  const ignitionKnown = data.ignition === true || data.ignition === false;
+  const isMoving      = data.speed_kmh >= cfg.tripMinSpeed;
+  const wantsStart    = ignitionKnown ? data.ignition === true  : isMoving;
+  const wantsEnd      = ignitionKnown ? data.ignition === false : !isMoving;
 
   // ── START ─────────────────────────────────────────────────────
-  if (tripShouldStart && !tripState) {
+  if (wantsStart && !tripState) {
     const result = await db.query(
       `INSERT INTO trips
          (vehicle_id, device_id, started_at, start_lat, start_lng,
@@ -346,35 +363,42 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
     );
 
     const newState = {
-      trip_id: result.rows[0].id,
-      start_ts: data.ts,
-      last_lat: data.latitude,
-      last_lng: data.longitude,
-      last_ts: data.ts,
-      distance_km: 0,
-      max_speed: data.speed_kmh,
-      idle_seconds: 0,
-      harsh_braking: 0,
-      overspeeds: 0,
-      in_overspeed:   data.speed_kmh > cfg.overspeedThreshold,
-      prev_speed:     data.speed_kmh,
-      idle_start_ts:  null,  // timestamp when current continuous idle began
-      idle_alerted:   false  // true once the excessive-idle alert has fired for this idle spell
+      trip_id:          result.rows[0].id,
+      start_ts:         data.ts,
+      last_lat:         data.latitude,
+      last_lng:         data.longitude,
+      last_ts:          data.ts,
+      distance_km:      0,
+      max_speed:        data.speed_kmh,
+      idle_seconds:     0,
+      harsh_braking:    0,
+      overspeeds:       0,
+      in_overspeed:     data.speed_kmh > cfg.overspeedThreshold,
+      prev_speed:       data.speed_kmh,
+      idle_start_ts:    null,
+      idle_alerted:     false,
+      end_candidate_ts: null,  // set when ignition-off debounce begins
     };
 
-    // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
     await redis.set(stateKey, JSON.stringify(newState), { ex: 86400 });
-
     console.log(`🚗 Trip STARTED — Vehicle: ${vehicle_id} | Trip ID: ${newState.trip_id}`);
     return;
   }
 
-  // ── UPDATE ────────────────────────────────────────────────────
-  if (tripShouldStart && tripState) {
-    const segSec = Math.max(
-      0,
-      (new Date(data.ts) - new Date(tripState.last_ts)) / 1000
-    );
+  // ── UPDATE / DEBOUNCE-END ────────────────────────────────────
+  if (tripState) {
+    // Vehicle resumed (ignition on or moving) — cancel any pending end
+    if (wantsStart && tripState.end_candidate_ts) {
+      tripState.end_candidate_ts = null;
+    }
+
+    // Ignition off / stopped — start debounce window if not already started
+    if (wantsEnd && !tripState.end_candidate_ts) {
+      tripState.end_candidate_ts = data.ts;
+    }
+
+    // Accumulate stats regardless of debounce state
+    const segSec = Math.max(0, (new Date(data.ts) - new Date(tripState.last_ts)) / 1000);
 
     const seg = haversineKm(
       tripState.last_lat, tripState.last_lng,
@@ -391,9 +415,8 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
     if (data.speed_kmh < cfg.tripMinSpeed) {
       tripState.idle_seconds += segSec;
 
-      // ── Excessive idle detection ──────────────────────────────
       if (!tripState.idle_start_ts) {
-        tripState.idle_start_ts = data.ts; // mark start of this idle spell
+        tripState.idle_start_ts = data.ts;
         tripState.idle_alerted  = false;
       }
 
@@ -414,7 +437,6 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
         );
       }
     } else {
-      // Vehicle is moving — reset idle spell
       tripState.idle_start_ts = null;
       tripState.idle_alerted  = false;
     }
@@ -434,73 +456,77 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
     }
 
     tripState.prev_speed = data.speed_kmh;
-    tripState.last_lat = data.latitude;
-    tripState.last_lng = data.longitude;
-    tripState.last_ts = data.ts;
+    tripState.last_lat   = data.latitude;
+    tripState.last_lng   = data.longitude;
+    tripState.last_ts    = data.ts;
 
-    // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
+    // Check whether the debounce window has expired → close trip
+    if (tripState.end_candidate_ts) {
+      const debounceElapsed =
+        (new Date(data.ts) - new Date(tripState.end_candidate_ts)) / 1000;
+
+      if (debounceElapsed >= cfg.tripEndDebounceSec) {
+        const duration_sec = Math.max(
+          0,
+          Math.round((new Date(data.ts) - new Date(tripState.start_ts)) / 1000)
+        );
+
+        const avg_speed_kmh = duration_sec > 0
+          ? parseFloat((tripState.distance_km / (duration_sec / 3600)).toFixed(2))
+          : 0;
+
+        const idle_minutes = parseFloat((tripState.idle_seconds / 60).toFixed(2));
+
+        const fuel_used_l = parseFloat((
+          tripState.distance_km * cfg.fuelLPerKm +
+          (tripState.idle_seconds / 3600) * cfg.fuelIdleLPerHour
+        ).toFixed(3));
+
+        await db.query(
+          `UPDATE trips
+           SET ended_at      = $1,
+               end_lat       = $2,
+               end_lng       = $3,
+               distance_km   = $4,
+               max_speed_kmh = $5,
+               avg_speed_kmh = $6,
+               duration_sec  = $7,
+               idle_minutes  = $8,
+               harsh_braking = $9,
+               overspeeds    = $10,
+               fuel_used_l   = $11,
+               is_complete   = true
+           WHERE id = $12`,
+          [
+            data.ts,
+            data.latitude,
+            data.longitude,
+            parseFloat(tripState.distance_km.toFixed(3)),
+            tripState.max_speed,
+            avg_speed_kmh,
+            duration_sec,
+            idle_minutes,
+            tripState.harsh_braking,
+            tripState.overspeeds,
+            fuel_used_l,
+            tripState.trip_id
+          ]
+        );
+
+        await redis.del(stateKey);
+
+        console.log(
+          `🏁 Trip ENDED — Vehicle: ${vehicle_id} | Trip ID: ${tripState.trip_id} | ` +
+          `${tripState.distance_km.toFixed(2)} km | ${Math.round(duration_sec / 60)} min | ` +
+          `Avg: ${avg_speed_kmh} km/h | Idle: ${idle_minutes} min | ` +
+          `Harsh brakes: ${tripState.harsh_braking} | Overspeeds: ${tripState.overspeeds} | ` +
+          `Fuel: ${fuel_used_l} L`
+        );
+        return;
+      }
+    }
+
     await redis.set(stateKey, JSON.stringify(tripState), { ex: 86400 });
-    return;
-  }
-
-  // ── END ───────────────────────────────────────────────────────
-  if (tripShouldEnd && tripState) {
-    const duration_sec = Math.max(
-      0,
-      Math.round((new Date(data.ts) - new Date(tripState.start_ts)) / 1000)
-    );
-
-    const avg_speed_kmh = duration_sec > 0
-      ? parseFloat((tripState.distance_km / (duration_sec / 3600)).toFixed(2))
-      : 0;
-
-    const idle_minutes = parseFloat((tripState.idle_seconds / 60).toFixed(2));
-
-    const fuel_used_l = parseFloat((
-      tripState.distance_km * cfg.fuelLPerKm +
-      (tripState.idle_seconds / 3600) * cfg.fuelIdleLPerHour
-    ).toFixed(3));
-
-    await db.query(
-      `UPDATE trips
-       SET ended_at      = $1,
-           end_lat       = $2,
-           end_lng       = $3,
-           distance_km   = $4,
-           max_speed_kmh = $5,
-           avg_speed_kmh = $6,
-           duration_sec  = $7,
-           idle_minutes  = $8,
-           harsh_braking = $9,
-           overspeeds    = $10,
-           fuel_used_l   = $11,
-           is_complete   = true
-       WHERE id = $12`,
-      [
-        data.ts,
-        data.latitude,
-        data.longitude,
-        parseFloat(tripState.distance_km.toFixed(3)),
-        tripState.max_speed,
-        avg_speed_kmh,
-        duration_sec,
-        idle_minutes,
-        tripState.harsh_braking,
-        tripState.overspeeds,
-        fuel_used_l,
-        tripState.trip_id
-      ]
-    );
-
-    await redis.del(stateKey);
-
-    console.log(
-      `🏁 Trip ENDED — Vehicle: ${vehicle_id} | Trip ID: ${tripState.trip_id} | ` +
-      `${tripState.distance_km.toFixed(2)} km | ${Math.round(duration_sec / 60)} min | ` +
-      `Avg: ${avg_speed_kmh} km/h | Idle: ${idle_minutes} min | ` +
-      `Harsh brakes: ${tripState.harsh_braking} | Overspeeds: ${tripState.overspeeds} | ` +
-      `Fuel: ${fuel_used_l} L`
-    );
   }
 }
 
@@ -525,6 +551,8 @@ async function savePing(data) {
     // Resolve per-ping config from device IO values, falling back to server defaults
     const cfg = resolveConfig(data.io);
 
+    const gpsValid = isValidGPS(data.latitude, data.longitude, data.satellites);
+
     await db.query(
       `INSERT INTO gps_pings
          (device_id, ts, latitude, longitude, speed_kmh,
@@ -532,8 +560,13 @@ async function savePing(data) {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [device_id, data.ts, data.latitude, data.longitude,
         data.speed_kmh || 0, data.heading || 0,
-        data.ignition || false, data.battery_v || null, true]
+        data.ignition || false, data.battery_v || null, gpsValid]
     );
+
+    if (!gpsValid) {
+      console.log(`📵 No-fix ping saved (invalid) — IMEI: ${data.imei} | Sats: ${data.satellites ?? '?'}`);
+      return;
+    }
 
     const liveData = {
       lat: data.latitude,

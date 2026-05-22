@@ -275,15 +275,50 @@ async function fireGeofenceEvent(gf, vehicle_id, event_type, data) {
   console.log(`🔲 Geofence ${event_type.toUpperCase()} — Vehicle: ${vehicle_id} | Zone: "${gf.name}"`);
 }
 
-// ── TRIP DETECTION ────────────────────────────────────────────────
-const TRIP_MIN_SPEED = 3;
-const TRIP_MAX_JUMP_KM = 2;
-const OVERSPEED_THRESHOLD = 60;
-const HARSH_BRAKE_THRESHOLD = 25;
-const FUEL_L_PER_KM = 0.10;
-const FUEL_IDLE_L_PER_HOUR = 0.50;
+// ── TRIP DETECTION CONFIG ─────────────────────────────────────────
+//
+// Server-side defaults — used when the device does not send the
+// corresponding IO element in its AVL packet.
+const DEFAULTS = {
+  tripMinSpeed:          3,    // km/h — movement threshold & idle detection
+  tripMaxJumpKm:         2,    // km   — GPS glitch guard (never device-overridden)
+  overspeedThreshold:    60,   // km/h — overspeed alert & counter
+  harshBrakeThreshold:   25,   // km/h drop between consecutive pings
+  fuelLPerKm:            0.10, // L/km while moving
+  fuelIdleLPerHour:      0.50, // L/h  while idling
+  excessiveIdleMinutes:  5,    // minutes of continuous idle before alert fires
+};
 
-async function processTripDetection(device_id, vehicle_id, data) {
+// Map each setting to the Teltonika AVL IO ID that carries it.
+// Set to null to always use the server default for that setting.
+// Update these IDs to match your Teltonika Configurator setup.
+const IO_CONFIG_IDS = {
+  overspeedThreshold:   183,  // AVL 183 — configured speed limit (km/h)
+  harshBrakeThreshold:  null, // not standard — uses default
+  tripMinSpeed:         null, // not standard — uses default
+  fuelLPerKm:           null, // not standard — uses default
+  fuelIdleLPerHour:     null, // not standard — uses default
+  excessiveIdleMinutes: null, // not standard — uses default
+};
+
+// Merge device IO values with server defaults.
+// data.io is the IO element map from the parsed AVL packet.
+function resolveConfig(io = {}) {
+  const pick = (id, fallback) =>
+    (id != null && io[id] != null) ? Number(io[id]) : fallback;
+
+  return {
+    tripMinSpeed:          pick(IO_CONFIG_IDS.tripMinSpeed,          DEFAULTS.tripMinSpeed),
+    tripMaxJumpKm:         DEFAULTS.tripMaxJumpKm,
+    overspeedThreshold:    pick(IO_CONFIG_IDS.overspeedThreshold,    DEFAULTS.overspeedThreshold),
+    harshBrakeThreshold:   pick(IO_CONFIG_IDS.harshBrakeThreshold,   DEFAULTS.harshBrakeThreshold),
+    fuelLPerKm:            pick(IO_CONFIG_IDS.fuelLPerKm,            DEFAULTS.fuelLPerKm),
+    fuelIdleLPerHour:      pick(IO_CONFIG_IDS.fuelIdleLPerHour,      DEFAULTS.fuelIdleLPerHour),
+    excessiveIdleMinutes:  pick(IO_CONFIG_IDS.excessiveIdleMinutes,  DEFAULTS.excessiveIdleMinutes),
+  };
+}
+
+async function processTripDetection(device_id, vehicle_id, data, cfg) {
   if (!vehicle_id) return;
 
   const stateKey = `trip:active:${device_id}`;
@@ -294,7 +329,7 @@ async function processTripDetection(device_id, vehicle_id, data) {
     : null;
 
   const ignitionAvailable = data.ignition !== undefined && data.ignition !== null;
-  const isMoving = data.speed_kmh >= TRIP_MIN_SPEED;
+  const isMoving = data.speed_kmh >= cfg.tripMinSpeed;
   const tripShouldStart = ignitionAvailable ? data.ignition === true : isMoving;
   const tripShouldEnd = ignitionAvailable ? data.ignition === false : !isMoving;
 
@@ -321,8 +356,10 @@ async function processTripDetection(device_id, vehicle_id, data) {
       idle_seconds: 0,
       harsh_braking: 0,
       overspeeds: 0,
-      in_overspeed: data.speed_kmh > OVERSPEED_THRESHOLD,
-      prev_speed: data.speed_kmh
+      in_overspeed:   data.speed_kmh > cfg.overspeedThreshold,
+      prev_speed:     data.speed_kmh,
+      idle_start_ts:  null,  // timestamp when current continuous idle began
+      idle_alerted:   false  // true once the excessive-idle alert has fired for this idle spell
     };
 
     // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
@@ -343,7 +380,7 @@ async function processTripDetection(device_id, vehicle_id, data) {
       tripState.last_lat, tripState.last_lng,
       data.latitude, data.longitude
     );
-    if (seg <= TRIP_MAX_JUMP_KM) {
+    if (seg <= cfg.tripMaxJumpKm) {
       tripState.distance_km += seg;
     }
 
@@ -351,16 +388,43 @@ async function processTripDetection(device_id, vehicle_id, data) {
       tripState.max_speed = data.speed_kmh;
     }
 
-    if (data.speed_kmh < TRIP_MIN_SPEED) {
+    if (data.speed_kmh < cfg.tripMinSpeed) {
       tripState.idle_seconds += segSec;
+
+      // ── Excessive idle detection ──────────────────────────────
+      if (!tripState.idle_start_ts) {
+        tripState.idle_start_ts = data.ts; // mark start of this idle spell
+        tripState.idle_alerted  = false;
+      }
+
+      const continuousIdleSec =
+        (new Date(data.ts) - new Date(tripState.idle_start_ts)) / 1000;
+
+      if (continuousIdleSec >= cfg.excessiveIdleMinutes * 60 && !tripState.idle_alerted) {
+        await triggerAlert(
+          vehicle_id, 'excessive_idle', 'warning',
+          parseFloat((continuousIdleSec / 60).toFixed(1)),
+          data.latitude, data.longitude
+        );
+        tripState.idle_alerted = true;
+        console.log(
+          `⏸️  Excessive idle — Vehicle: ${vehicle_id} | ` +
+          `${(continuousIdleSec / 60).toFixed(1)} min at ` +
+          `${data.latitude.toFixed(5)},${data.longitude.toFixed(5)}`
+        );
+      }
+    } else {
+      // Vehicle is moving — reset idle spell
+      tripState.idle_start_ts = null;
+      tripState.idle_alerted  = false;
     }
 
     const speedDrop = tripState.prev_speed - data.speed_kmh;
-    if (speedDrop >= HARSH_BRAKE_THRESHOLD && tripState.prev_speed > 10) {
+    if (speedDrop >= cfg.harshBrakeThreshold && tripState.prev_speed > 10) {
       tripState.harsh_braking++;
     }
 
-    if (data.speed_kmh > OVERSPEED_THRESHOLD) {
+    if (data.speed_kmh > cfg.overspeedThreshold) {
       if (!tripState.in_overspeed) {
         tripState.overspeeds++;
         tripState.in_overspeed = true;
@@ -393,8 +457,8 @@ async function processTripDetection(device_id, vehicle_id, data) {
     const idle_minutes = parseFloat((tripState.idle_seconds / 60).toFixed(2));
 
     const fuel_used_l = parseFloat((
-      tripState.distance_km * FUEL_L_PER_KM +
-      (tripState.idle_seconds / 3600) * FUEL_IDLE_L_PER_HOUR
+      tripState.distance_km * cfg.fuelLPerKm +
+      (tripState.idle_seconds / 3600) * cfg.fuelIdleLPerHour
     ).toFixed(3));
 
     await db.query(
@@ -458,6 +522,9 @@ async function savePing(data) {
 
     const { device_id, vehicle_id, account_id } = deviceResult.rows[0];
 
+    // Resolve per-ping config from device IO values, falling back to server defaults
+    const cfg = resolveConfig(data.io);
+
     await db.query(
       `INSERT INTO gps_pings
          (device_id, ts, latitude, longitude, speed_kmh,
@@ -481,14 +548,14 @@ async function savePing(data) {
     // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
     await redis.set(`device:${data.imei}`, JSON.stringify(liveData), { ex: 300 });
 
-    if (vehicle_id && data.speed_kmh > OVERSPEED_THRESHOLD) {
+    if (vehicle_id && data.speed_kmh > cfg.overspeedThreshold) {
       await triggerAlert(vehicle_id, 'overspeed', 'warning', data.speed_kmh,
         data.latitude, data.longitude);
     }
 
     // Trip and geofence detection are non-critical — Redis failures must not prevent ping save
     try {
-      await processTripDetection(device_id, vehicle_id, data);
+      await processTripDetection(device_id, vehicle_id, data, cfg);
     } catch (tripErr) {
       console.warn(`⚠️  Trip detection skipped for ${data.imei}:`, tripErr.message);
     }

@@ -170,10 +170,11 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 // Returns false for pings the device sends when it has no satellite fix.
 // Per Teltonika spec: no-fix records have satellites=0 and speed=0;
 // coordinates may be (0,0) or the last known position — both unreliable.
-function isValidGPS(lat, lng, satellites) {
+function isValidGPS(lat, lng, satellites, hdop = null) {
   if (lat === 0 && lng === 0) return false;            // null island
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false; // out of range
   if (satellites === 0) return false;                  // no satellite fix
+  if (hdop != null && hdop > 50) return false;         // IO 182: HDOP×10 > 50 means HDOP > 5.0
   return true;
 }
 
@@ -551,11 +552,9 @@ async function savePing(data) {
     // Resolve per-ping config from device IO values, falling back to server defaults
     const cfg = resolveConfig(data.io);
 
-    // TODO: remove after IO mapping is confirmed
-    console.log(`[IO] IMEI: ${data.imei} | IO Elements:`, JSON.stringify(data.io));
-    console.log(`[IO] Resolved cfg:`, JSON.stringify(cfg));
 
-    const gpsValid = isValidGPS(data.latitude, data.longitude, data.satellites);
+    const hdop = data.io[182] != null ? data.io[182] : null;
+    const gpsValid = isValidGPS(data.latitude, data.longitude, data.satellites, hdop);
 
     await db.query(
       `INSERT INTO gps_pings

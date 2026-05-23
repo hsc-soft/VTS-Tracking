@@ -551,6 +551,10 @@ async function savePing(data) {
     // Resolve per-ping config from device IO values, falling back to server defaults
     const cfg = resolveConfig(data.io);
 
+    // TODO: remove after IO mapping is confirmed
+    console.log(`[IO] IMEI: ${data.imei} | IO Elements:`, JSON.stringify(data.io));
+    console.log(`[IO] Resolved cfg:`, JSON.stringify(cfg));
+
     const gpsValid = isValidGPS(data.latitude, data.longitude, data.satellites);
 
     await db.query(

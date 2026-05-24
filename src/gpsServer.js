@@ -335,7 +335,7 @@ function resolveConfig(io = {}) {
   };
 }
 
-async function processTripDetection(device_id, vehicle_id, data, cfg) {
+async function processTripDetection(device_id, vehicle_id, data, cfg, gpsValid = true) {
   if (!vehicle_id) return;
 
   const stateKey = `trip:active:${device_id}`;
@@ -345,6 +345,11 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
     ? (typeof raw === 'string' ? JSON.parse(raw) : raw)
     : null;
 
+  // Stale packet (Eventual Record from before this trip started) — ignore for trip logic
+  if (tripState && new Date(data.ts) <= new Date(tripState.start_ts)) {
+    return;
+  }
+
   // null means AVL 239 was not present in this packet — don't treat as OFF
   const ignitionKnown = data.ignition === true || data.ignition === false;
   const isMoving      = data.speed_kmh >= cfg.tripMinSpeed;
@@ -353,6 +358,14 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
 
   // ── START ─────────────────────────────────────────────────────
   if (wantsStart && !tripState) {
+    // Close any orphaned incomplete trip (Redis state was lost — server restart, TTL expiry)
+    await db.query(
+      `UPDATE trips
+       SET ended_at = $1, end_lat = $2, end_lng = $3, is_complete = true
+       WHERE vehicle_id = $4 AND is_complete = false AND ended_at IS NULL`,
+      [data.ts, gpsValid ? data.latitude : null, gpsValid ? data.longitude : null, vehicle_id]
+    );
+
     const result = await db.query(
       `INSERT INTO trips
          (vehicle_id, device_id, started_at, start_lat, start_lng,
@@ -398,15 +411,17 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
       tripState.end_candidate_ts = data.ts;
     }
 
-    // Accumulate stats regardless of debounce state
+    // Accumulate stats — distance only from valid GPS pings to avoid coordinate drift
     const segSec = Math.max(0, (new Date(data.ts) - new Date(tripState.last_ts)) / 1000);
 
-    const seg = haversineKm(
-      tripState.last_lat, tripState.last_lng,
-      data.latitude, data.longitude
-    );
-    if (seg <= cfg.tripMaxJumpKm) {
-      tripState.distance_km += seg;
+    if (gpsValid) {
+      const seg = haversineKm(
+        tripState.last_lat, tripState.last_lng,
+        data.latitude, data.longitude
+      );
+      if (seg <= cfg.tripMaxJumpKm) {
+        tripState.distance_km += seg;
+      }
     }
 
     if (data.speed_kmh > tripState.max_speed) {
@@ -457,9 +472,11 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
     }
 
     tripState.prev_speed = data.speed_kmh;
-    tripState.last_lat   = data.latitude;
-    tripState.last_lng   = data.longitude;
-    tripState.last_ts    = data.ts;
+    if (gpsValid) {
+      tripState.last_lat = data.latitude;
+      tripState.last_lng = data.longitude;
+    }
+    tripState.last_ts = data.ts;
 
     // Check whether the debounce window has expired → close trip
     if (tripState.end_candidate_ts) {
@@ -467,9 +484,10 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
         (new Date(data.ts) - new Date(tripState.end_candidate_ts)) / 1000;
 
       if (debounceElapsed >= cfg.tripEndDebounceSec) {
+        const endedAt = tripState.end_candidate_ts; // actual ignition-off time
         const duration_sec = Math.max(
           0,
-          Math.round((new Date(data.ts) - new Date(tripState.start_ts)) / 1000)
+          Math.round((new Date(endedAt) - new Date(tripState.start_ts)) / 1000)
         );
 
         const avg_speed_kmh = duration_sec > 0
@@ -499,9 +517,9 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
                is_complete   = true
            WHERE id = $12`,
           [
-            data.ts,
-            data.latitude,
-            data.longitude,
+            endedAt,
+            tripState.last_lat,
+            tripState.last_lng,
             parseFloat(tripState.distance_km.toFixed(3)),
             tripState.max_speed,
             avg_speed_kmh,
@@ -566,6 +584,16 @@ async function savePing(data) {
         data.ignition || false, data.battery_v || null, gpsValid]
     );
 
+    // Trip detection runs before gpsValid check — ignition state (IO 239) is reliable
+    // regardless of HDOP. Skipping it would orphan trips when vehicle stops in a
+    // covered area (garage, basement) where HDOP goes high. Distance accumulation
+    // is guarded inside processTripDetection by the gpsValid flag.
+    try {
+      await processTripDetection(device_id, vehicle_id, data, cfg, gpsValid);
+    } catch (tripErr) {
+      console.warn(`⚠️  Trip detection skipped for ${data.imei}:`, tripErr.message);
+    }
+
     if (!gpsValid) {
       console.log(`📵 No-fix ping saved (invalid) — IMEI: ${data.imei} | Sats: ${data.satellites ?? '?'}`);
       return;
@@ -587,13 +615,6 @@ async function savePing(data) {
     if (vehicle_id && data.speed_kmh > cfg.overspeedThreshold) {
       await triggerAlert(vehicle_id, 'overspeed', 'warning', data.speed_kmh,
         data.latitude, data.longitude);
-    }
-
-    // Trip and geofence detection are non-critical — Redis failures must not prevent ping save
-    try {
-      await processTripDetection(device_id, vehicle_id, data, cfg);
-    } catch (tripErr) {
-      console.warn(`⚠️  Trip detection skipped for ${data.imei}:`, tripErr.message);
     }
 
     try {

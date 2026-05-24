@@ -401,18 +401,28 @@ async function processTripDetection(device_id, vehicle_id, data, cfg, gpsValid =
 
   // ── UPDATE / DEBOUNCE-END ────────────────────────────────────
   if (tripState) {
-    // Vehicle resumed (ignition on or moving) — cancel any pending end
+    // Vehicle resumed — cancel pending end and clear stat snapshot
     if (wantsStart && tripState.end_candidate_ts) {
       tripState.end_candidate_ts = null;
+      tripState.snap = null;
     }
 
-    // Ignition off / stopped — start debounce window if not already started
+    // Ignition off — start debounce and snapshot stats at this exact moment
     if (wantsEnd && !tripState.end_candidate_ts) {
       tripState.end_candidate_ts = data.ts;
+      tripState.snap = {
+        distance_km:   tripState.distance_km,
+        idle_seconds:  tripState.idle_seconds,
+        max_speed:     tripState.max_speed,
+        harsh_braking: tripState.harsh_braking,
+        overspeeds:    tripState.overspeeds,
+      };
     }
 
     // Accumulate stats — distance only from valid GPS pings to avoid coordinate drift
-    const segSec = Math.max(0, (new Date(data.ts) - new Date(tripState.last_ts)) / 1000);
+    // Option 3: cap segSec to 5 min — prevents GPS gap / reconnect from inflating idle
+    const rawSeg = (new Date(data.ts) - new Date(tripState.last_ts)) / 1000;
+    const segSec = Math.min(Math.max(0, rawSeg), 300);
 
     if (gpsValid) {
       const seg = haversineKm(
@@ -428,8 +438,13 @@ async function processTripDetection(device_id, vehicle_id, data, cfg, gpsValid =
       tripState.max_speed = data.speed_kmh;
     }
 
-    if (data.speed_kmh < cfg.tripMinSpeed) {
-      tripState.idle_seconds += segSec;
+    const currIsIdle = data.speed_kmh < cfg.tripMinSpeed;
+    const prevWasIdle = tripState.prev_speed < cfg.tripMinSpeed;
+
+    if (currIsIdle) {
+      // Option 1: half-interval at moving→stopped transition for accurate boundary
+      const idleSeg = (!prevWasIdle) ? segSec / 2 : segSec;
+      tripState.idle_seconds += idleSeg;
 
       if (!tripState.idle_start_ts) {
         tripState.idle_start_ts = data.ts;
@@ -485,20 +500,31 @@ async function processTripDetection(device_id, vehicle_id, data, cfg, gpsValid =
 
       if (debounceElapsed >= cfg.tripEndDebounceSec) {
         const endedAt = tripState.end_candidate_ts; // actual ignition-off time
+
+        // Use snapshotted stats from the moment ignition turned off —
+        // pings during debounce window must not inflate idle/distance/etc.
+        const s = tripState.snap ?? tripState;
+        const finalDistance   = s.distance_km;
+        const finalIdle       = s.idle_seconds;
+        const finalMaxSpeed   = s.max_speed;
+        const finalHarshBrake = s.harsh_braking;
+        const finalOverspeeds = s.overspeeds;
+
         const duration_sec = Math.max(
           0,
           Math.round((new Date(endedAt) - new Date(tripState.start_ts)) / 1000)
         );
 
         const avg_speed_kmh = duration_sec > 0
-          ? parseFloat((tripState.distance_km / (duration_sec / 3600)).toFixed(2))
+          ? parseFloat((finalDistance / (duration_sec / 3600)).toFixed(2))
           : 0;
 
-        const idle_minutes = parseFloat((tripState.idle_seconds / 60).toFixed(2));
+        // Option 2: safety cap — idle can never exceed trip duration
+        const idle_minutes = parseFloat((Math.min(finalIdle, duration_sec) / 60).toFixed(2));
 
         const fuel_used_l = parseFloat((
-          tripState.distance_km * cfg.fuelLPerKm +
-          (tripState.idle_seconds / 3600) * cfg.fuelIdleLPerHour
+          finalDistance * cfg.fuelLPerKm +
+          (finalIdle / 3600) * cfg.fuelIdleLPerHour
         ).toFixed(3));
 
         await db.query(
@@ -520,13 +546,13 @@ async function processTripDetection(device_id, vehicle_id, data, cfg, gpsValid =
             endedAt,
             tripState.last_lat,
             tripState.last_lng,
-            parseFloat(tripState.distance_km.toFixed(3)),
-            tripState.max_speed,
+            parseFloat(finalDistance.toFixed(3)),
+            finalMaxSpeed,
             avg_speed_kmh,
             duration_sec,
             idle_minutes,
-            tripState.harsh_braking,
-            tripState.overspeeds,
+            finalHarshBrake,
+            finalOverspeeds,
             fuel_used_l,
             tripState.trip_id
           ]
@@ -536,9 +562,9 @@ async function processTripDetection(device_id, vehicle_id, data, cfg, gpsValid =
 
         console.log(
           `🏁 Trip ENDED — Vehicle: ${vehicle_id} | Trip ID: ${tripState.trip_id} | ` +
-          `${tripState.distance_km.toFixed(2)} km | ${Math.round(duration_sec / 60)} min | ` +
+          `${finalDistance.toFixed(2)} km | ${Math.round(duration_sec / 60)} min | ` +
           `Avg: ${avg_speed_kmh} km/h | Idle: ${idle_minutes} min | ` +
-          `Harsh brakes: ${tripState.harsh_braking} | Overspeeds: ${tripState.overspeeds} | ` +
+          `Harsh brakes: ${finalHarshBrake} | Overspeeds: ${finalOverspeeds} | ` +
           `Fuel: ${fuel_used_l} L`
         );
         return;

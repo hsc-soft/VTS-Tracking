@@ -606,7 +606,8 @@ async function savePing(data) {
       `📍 Ping — IMEI: ${data.imei} | ` +
       `${data.latitude.toFixed(6)},${data.longitude.toFixed(6)} | ` +
       `Speed: ${data.speed_kmh} km/h | Ignition: ${data.ignition ? 'ON' : 'OFF'} | ` +
-      `Proto: ${data.protocol}`
+      `Proto: ${data.protocol} | ` +
+      `Time: ${new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false })}`
     );
 
   } catch (err) {

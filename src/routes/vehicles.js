@@ -17,11 +17,16 @@ router.get('/', auth, async (req, res) => {
     );
 
     // Attach live position from Redis for each vehicle
+    const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
     const vehicles = await Promise.all(result.rows.map(async (v) => {
       if (v.imei) {
         const liveData = await redis.get(`device:${v.imei}`);
         if (liveData) {
-          v.live = JSON.parse(liveData);
+          const live = JSON.parse(liveData);
+          const ageMs = Date.now() - new Date(live.ts).getTime();
+          live.is_stale  = ageMs > STALE_THRESHOLD_MS;
+          live.age_sec   = Math.floor(ageMs / 1000);
+          v.live = live;
         }
       }
       return v;

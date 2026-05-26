@@ -726,6 +726,8 @@ function startGPSServer(port) {
 
           const result = parseCodec8Extended(packet, imei);
           if (result) {
+            const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+            console.log(`📦 Data received — IMEI: ${imei} | Records: ${result.numRecords} | Time: ${recvTime}`);
             for (const record of result.records) {
               await savePing(record);
             }

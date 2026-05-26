@@ -299,7 +299,7 @@ const DEFAULTS = {
   fuelLPerKm:            0.10, // L/km while moving
   fuelIdleLPerHour:      0.50, // L/h  while idling
   excessiveIdleMinutes:  5,    // minutes of continuous idle before alert fires
-  tripEndDebounceSec:    60,   // seconds ignition-off must hold before trip closes
+  tripEndDebounceSec:    180,  // seconds ignition-off must hold before trip closes
 };
 
 // Map each setting to the Teltonika AVL IO ID that carries it.

@@ -726,8 +726,11 @@ function startGPSServer(port) {
 
           const result = parseCodec8Extended(packet, imei);
           if (result) {
-            const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-            console.log(`📦 Data received — IMEI: ${imei} | Records: ${result.numRecords} | Time: ${recvTime}`);
+            const firstTs = new Date(result.records[0].ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+            const lastTs  = result.numRecords > 1
+              ? new Date(result.records[result.numRecords - 1].ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false })
+              : null;
+            console.log(`📦 Data received — IMEI: ${imei} | Records: ${result.numRecords} | Time: ${lastTs ? `${firstTs} → ${lastTs}` : firstTs}`);
             for (const record of result.records) {
               await savePing(record);
             }

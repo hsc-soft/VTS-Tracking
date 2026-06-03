@@ -131,6 +131,75 @@ function parseCodec8Extended(buffer, imei) {
   }
 }
 
+// ── GT06N PROTOCOL ────────────────────────────────────────────────
+function crc16GT06(buf) {
+  let crc = 0xFFFF;
+  for (let i = 0; i < buf.length; i++) {
+    crc ^= buf[i] << 8;
+    for (let j = 0; j < 8; j++) {
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+    }
+  }
+  return crc;
+}
+
+function decodeGT06IMEI(buf) {
+  let s = '';
+  for (let i = 0; i < 8; i++) {
+    s += ((buf[i] >> 4) & 0x0F).toString();
+    s += (buf[i] & 0x0F).toString();
+  }
+  return s.replace(/f$/i, '').slice(0, 15);
+}
+
+function buildGT06ACK(proto, serial) {
+  // 78 78 05 [proto] [serialH] [serialL] [crcH] [crcL] 0D 0A
+  const pkt = Buffer.allocUnsafe(10);
+  pkt[0] = 0x78; pkt[1] = 0x78; pkt[2] = 0x05; pkt[3] = proto;
+  pkt[4] = (serial >> 8) & 0xFF;
+  pkt[5] = serial & 0xFF;
+  const crc = crc16GT06(pkt.subarray(2, 6));
+  pkt[6] = (crc >> 8) & 0xFF; pkt[7] = crc & 0xFF;
+  pkt[8] = 0x0D; pkt[9] = 0x0A;
+  return pkt;
+}
+
+function parseGT06GPS(content, imei) {
+  if (content.length < 18) return null;
+  let off = 0;
+
+  const yy = content[off++], mm = content[off++], dd = content[off++];
+  const hh = content[off++], mi = content[off++], ss = content[off++];
+  const ts = new Date(Date.UTC(2000 + yy, mm - 1, dd, hh, mi, ss)).toISOString();
+
+  const gpsInfo    = content[off++];
+  const satellites = (gpsInfo >> 4) & 0x0F;
+  const isWest     = !!(gpsInfo & 0x02);
+  const isSouth    = !!(gpsInfo & 0x01);
+
+  if (content.length < off + 10) return null;
+  const latRaw = content.readUInt32BE(off); off += 4;
+  const lngRaw = content.readUInt32BE(off); off += 4;
+
+  let latitude  = latRaw  / 1800000.0;
+  let longitude = lngRaw / 1800000.0;
+  if (isSouth) latitude  = -latitude;
+  if (isWest)  longitude = -longitude;
+
+  const speed_kmh = content[off++];
+  const cH = content[off++];
+  const cL = content[off++];
+  const heading  = ((cH & 0x03) << 8) | cL;
+  const ignition = (cH & 0x40) ? true : null; // ACC bit from course high byte
+
+  return {
+    imei, ts, latitude, longitude,
+    altitude: 0, heading, satellites, speed_kmh,
+    ignition, battery_v: null, ext_v: null,
+    protocol: 'gt06', io: {}
+  };
+}
+
 // ── PARSE PLAIN TEXT / OSMAND FORMAT ─────────────────────────────
 function parseTextPacket(text) {
   try {
@@ -654,6 +723,7 @@ function startGPSServer(port) {
     let imei = null;
     let buf = Buffer.alloc(0);
     let textMode = false;
+    let gt06Mode = false;
 
     const MAX_BUF = 65_536; // 64 KB — drop connection if a client sends garbage this large
 
@@ -670,11 +740,60 @@ function startGPSServer(port) {
           return;
         }
 
-        if (!imei && !textMode) {
-          const preview = buf.toString('utf8');
-          if (preview.includes('lat=') || preview.includes('id=')) {
-            textMode = true;
+        if (!imei && !textMode && !gt06Mode) {
+          if (buf.length >= 2 && buf[0] === 0x78 && buf[1] === 0x78) {
+            gt06Mode = true;
+          } else {
+            const preview = buf.toString('utf8');
+            if (preview.includes('lat=') || preview.includes('id=')) {
+              textMode = true;
+            }
           }
+        }
+
+        if (gt06Mode) {
+          while (buf.length >= 5) {
+            if (buf[0] !== 0x78 || buf[1] !== 0x78) { buf = buf.subarray(1); continue; }
+            const L = buf[2];
+            const totalLen = L + 5; // 2(start) + 1(len) + L + 2(end... wait)
+            // Packet: 78 78 [L] [proto] [content] [serial 2B] [CRC 2B] 0D 0A
+            // L = proto(1) + content + serial(2) + crc(2)
+            // total = 2 + 1 + L + 2(end) = L + 5
+            if (buf.length < totalLen) break;
+
+            const proto   = buf[3];
+            const content = buf.subarray(4, L - 1);       // L - 5 bytes of content
+            const serial  = buf.readUInt16BE(L - 1);      // serial at offset L-1
+            const crcRecv = buf.readUInt16BE(L + 1);      // CRC at offset L+1
+            const crcCalc = crc16GT06(buf.subarray(2, L + 1)); // from len byte to serial
+
+            if (crcCalc !== crcRecv) {
+              console.warn(`[GT06] CRC mismatch from ${imei || clientIP}`);
+            } else if (proto === 0x01) {
+              // Login packet — extract IMEI
+              if (content.length >= 8) {
+                imei = decodeGT06IMEI(content.subarray(0, 8));
+                console.log(`🔑 GT06 IMEI accepted: ${imei} from ${clientIP}`);
+              }
+              socket.write(buildGT06ACK(0x01, serial));
+            } else if (proto === 0x12 || proto === 0x22) {
+              // GPS location packet
+              const data = parseGT06GPS(content, imei);
+              if (data) {
+                const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                console.log(`📦 Data received — IMEI: ${imei} | Records: 1 | Time: ${recvTime}`);
+                await savePing(data);
+              }
+              socket.write(buildGT06ACK(proto, serial));
+              console.log(`✅ ACK 1 record(s) — IMEI: ${imei}`);
+            } else if (proto === 0x13) {
+              // Heartbeat
+              socket.write(buildGT06ACK(0x13, serial));
+            }
+
+            buf = buf.subarray(totalLen);
+          }
+          return;
         }
 
         if (textMode) {
@@ -767,7 +886,7 @@ function startGPSServer(port) {
   });
 
   server.listen(port, () => {
-    console.log(`🛰️  GPS TCP Server running on port ${port} [Teltonika Codec 8 Extended]`);
+    console.log(`🛰️  GPS TCP Server running on port ${port} [Teltonika Codec8Ext + GT06N]`);
   });
 
   server.on('error', (err) => {

@@ -826,6 +826,8 @@ function startGPSServer(port) {
                 const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
                 console.log(`📦 Data received — IMEI: ${imei} | Records: 1 | Time: ${recvTime}`);
                 await savePing(data);
+              } else {
+                console.warn(`[GT06] GPS parse failed — IMEI: ${imei} | content len: ${content.length} | hex: ${content.toString('hex')}`);
               }
               socket.write(buildGT06ACK(proto, serial));
               console.log(`✅ ACK 1 record(s) — IMEI: ${imei}`);

@@ -833,6 +833,9 @@ function startGPSServer(port) {
               console.log(`✅ ACK 1 record(s) — IMEI: ${imei}`);
             } else if (proto === 0x13) {
               socket.write(buildGT06ACK(0x13, serial));
+              console.log(`💓 Heartbeat — IMEI: ${imei}`);
+            } else {
+              console.log(`[GT06] Unknown proto: 0x${proto.toString(16).padStart(2,'0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
             }
           }
           return;

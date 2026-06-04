@@ -768,7 +768,9 @@ function startGPSServer(port) {
             const crcCalc = crc16GT06(buf.subarray(2, L + 1)); // from len byte to serial
 
             if (crcCalc !== crcRecv) {
-              console.warn(`[GT06] CRC mismatch from ${imei || clientIP}`);
+              console.warn(`[GT06] CRC mismatch from ${imei || clientIP} | hex: ${buf.subarray(0, totalLen).toString('hex')} | calc: ${crcCalc.toString(16)} recv: ${crcRecv.toString(16)}`);
+              buf = buf.subarray(totalLen);
+              continue;
             } else if (proto === 0x01) {
               // Login packet — extract IMEI
               if (content.length >= 8) {

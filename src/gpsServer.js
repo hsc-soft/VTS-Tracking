@@ -833,7 +833,12 @@ function startGPSServer(port) {
               console.log(`✅ ACK 1 record(s) — IMEI: ${imei}`);
             } else if (proto === 0x13) {
               socket.write(buildGT06ACK(0x13, serial));
-              console.log(`💓 Heartbeat — IMEI: ${imei}`);
+              const termInfo  = content[0] ?? 0;
+              const gpsFix    = !!(termInfo & 0x40); // bit 6
+              const acc       = !!(termInfo & 0x02); // bit 1
+              const voltLevel = content[1] ?? '?';
+              const signal    = content[2] ?? '?';
+              console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel}`);
             } else {
               console.log(`[GT06] Unknown proto: 0x${proto.toString(16).padStart(2,'0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
             }

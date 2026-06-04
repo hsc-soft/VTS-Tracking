@@ -181,7 +181,8 @@ function decodeGT06IMEI(buf) {
     s += ((buf[i] >> 4) & 0x0F).toString();
     s += (buf[i] & 0x0F).toString();
   }
-  return s.replace(/f$/i, '').slice(0, 15);
+  // First nibble is padding (0), real 15-digit IMEI starts at position 1
+  return s.replace(/[fF]$/, '').slice(1, 16);
 }
 
 function buildGT06ACK(proto, serial) {

@@ -872,6 +872,9 @@ function startGPSServer(port) {
               if (imei) {
                 try {
                   const rawLastPos = await redis.get(`device:lastpos:${imei}`);
+                  if (!rawLastPos) {
+                    console.log(`[HB] No lastpos for ${imei} — skipping live update`);
+                  }
                   if (rawLastPos) {
                     const lastPos = typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos;
 
@@ -922,6 +925,7 @@ function startGPSServer(port) {
                       // - ACC ON  → update only if GPS is stale >2 min (vehicle IDLE, not moving)
                       const gapFromLastGps = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
                       if (!acc || gapFromLastGps > 2) {
+                        console.log(`[HB] Live update — IMEI: ${imei} | ignition:${acc} | gap:${gapFromLastGps.toFixed(1)}min`);
                         await redis.set(`device:${imei}`, JSON.stringify({
                           lat: lastPos.lat,
                           lng: lastPos.lng,

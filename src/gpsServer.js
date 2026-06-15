@@ -916,6 +916,22 @@ function startGPSServer(port) {
                           }
                         }
                       }
+
+                      // Update live map position from heartbeat:
+                      // - ACC OFF → always update (vehicle PARKED)
+                      // - ACC ON  → update only if GPS is stale >2 min (vehicle IDLE, not moving)
+                      const gapFromLastGps = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
+                      if (!acc || gapFromLastGps > 2) {
+                        await redis.set(`device:${imei}`, JSON.stringify({
+                          lat: lastPos.lat,
+                          lng: lastPos.lng,
+                          speed: 0,
+                          heading: 0,
+                          ignition: acc,
+                          battery: null,
+                          ts: new Date().toISOString()
+                        }), { ex: 300 });
+                      }
                     }
                   }
                 } catch (hbErr) {

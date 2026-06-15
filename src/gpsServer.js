@@ -816,21 +816,27 @@ function startGPSServer(port) {
         }
 
         if (gt06Mode) {
-          // GT06N packets end with 0x0D 0x0A — use end-marker to find boundaries
-          const END = Buffer.from([0x0D, 0x0A]);
+          // GT06N packet structure: 78 78 [L] [proto...content...serial(2)...CRC(2)] 0D 0A
+          // Total length = L + 5. Use length-based parsing to avoid false 0D 0A in data.
           while (true) {
-            if (buf.length < 6) break;
+            if (buf.length < 3) break;
             if (buf[0] !== 0x78 || buf[1] !== 0x78) { buf = buf.subarray(1); continue; }
 
-            const endIdx = buf.indexOf(END, 4); // search after header
-            if (endIdx === -1) break;           // incomplete packet
+            const L        = buf[2];
+            const totalLen = L + 5;
 
-            const pkt    = buf.subarray(0, endIdx + 2);
-            buf          = buf.subarray(endIdx + 2);
+            if (buf.length < totalLen) break; // incomplete — wait for more data
 
-            if (pkt.length < 6) continue;
+            const pkt = buf.subarray(0, totalLen);
+            buf       = buf.subarray(totalLen);
 
-            const L      = pkt[2];
+            // Sanity check: last 2 bytes must be 0D 0A
+            if (pkt[totalLen - 2] !== 0x0D || pkt[totalLen - 1] !== 0x0A) {
+              console.warn(`[GT06] Bad terminator — skipping 1 byte, hex: ${pkt.subarray(0,6).toString('hex')}`);
+              buf = Buffer.concat([pkt.subarray(1), buf]);
+              continue;
+            }
+
             const proto  = pkt[3];
             // content = everything after proto, before last 4 bytes (serial 2 + CRC 2)
             const content = pkt.subarray(4, pkt.length - 6); // exclude serial+CRC+0D0A

@@ -664,16 +664,30 @@ async function savePing(data) {
     await db.query(
       `INSERT INTO gps_pings
          (device_id, ts, latitude, longitude, speed_kmh,
-          heading, ignition, battery_v, is_valid)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          heading, ignition, battery_v, satellites, is_valid)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [device_id, data.ts, data.latitude, data.longitude,
         data.speed_kmh || 0, data.heading || 0,
-        data.ignition || false, data.battery_v || null, gpsValid]
+        data.ignition || false, data.battery_v || null,
+        data.satellites ?? null, gpsValid]
     );
 
     if (!gpsValid) {
       console.log(`📵 No-fix ping saved (invalid) — IMEI: ${data.imei} | Sats: ${data.satellites ?? '?'}`);
       return;
+    }
+
+    // Store last known valid position for GT06N heartbeat-based trip/idle detection
+    await redis.set(`device:lastpos:${data.imei}`, JSON.stringify({
+      lat: data.latitude,
+      lng: data.longitude,
+      ts: data.ts,
+      speed: data.speed_kmh
+    }), { ex: 86400 });
+
+    // Reset excessive idle alert when vehicle is moving again
+    if (data.speed_kmh >= DEFAULTS.tripMinSpeed && vehicle_id) {
+      await redis.del(`idle:alerted:${vehicle_id}`);
     }
 
     const liveData = {
@@ -839,6 +853,61 @@ function startGPSServer(port) {
               const voltLevel = content[1] ?? '?';
               const signal    = content[2] ?? '?';
               console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel}`);
+
+              // GT06N doesn't send GPS when stationary — use heartbeat for trip end + idle detection
+              if (imei) {
+                try {
+                  const rawLastPos = await redis.get(`device:lastpos:${imei}`);
+                  if (rawLastPos) {
+                    const lastPos = typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos;
+
+                    const devRes = await db.query(
+                      `SELECT d.id AS device_id, v.id AS vehicle_id
+                       FROM devices d
+                       LEFT JOIN vehicles v ON v.device_id = d.id
+                       WHERE d.imei = $1 AND d.is_active = true`,
+                      [imei]
+                    );
+
+                    if (devRes.rows.length > 0) {
+                      const { device_id, vehicle_id } = devRes.rows[0];
+                      const cfg = resolveConfig({});
+                      const now = new Date().toISOString();
+
+                      // Only affect an existing active trip — never start one from heartbeat
+                      const tripRaw = await redis.get(`trip:active:${device_id}`);
+                      if (tripRaw) {
+                        const hbData = {
+                          imei, ts: now,
+                          latitude: lastPos.lat, longitude: lastPos.lng,
+                          speed_kmh: 0, heading: 0,
+                          ignition: acc,
+                          battery_v: null, satellites: null,
+                          protocol: 'gt06_heartbeat', io: {}
+                        };
+                        await processTripDetection(device_id, vehicle_id, hbData, cfg);
+                      }
+
+                      // Excessive idle: ACC ON but no GPS for >= excessiveIdleMinutes
+                      if (acc && vehicle_id) {
+                        const gapMin = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
+                        if (gapMin >= cfg.excessiveIdleMinutes) {
+                          const alertedKey = `idle:alerted:${vehicle_id}`;
+                          const alreadyAlerted = await redis.get(alertedKey);
+                          if (!alreadyAlerted) {
+                            await triggerAlert(vehicle_id, 'excessive_idle', 'warning',
+                              parseFloat(gapMin.toFixed(1)), lastPos.lat, lastPos.lng);
+                            await redis.set(alertedKey, '1', { ex: 3600 });
+                            console.log(`⏸️  Excessive idle (GT06) — Vehicle: ${vehicle_id} | ${gapMin.toFixed(1)} min at ${lastPos.lat.toFixed(5)},${lastPos.lng.toFixed(5)}`);
+                          }
+                        }
+                      }
+                    }
+                  }
+                } catch (hbErr) {
+                  console.warn(`⚠️  Heartbeat trip/idle detection failed for ${imei}:`, hbErr.message);
+                }
+              }
             } else {
               console.log(`[GT06] Unknown proto: 0x${proto.toString(16).padStart(2,'0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
             }

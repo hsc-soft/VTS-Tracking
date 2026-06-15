@@ -712,8 +712,10 @@ async function savePing(data) {
       ts: data.ts
     };
 
-    // ✅ FIX — Upstash REST API format: { ex: TTL_seconds }
-    await redis.set(`device:${data.imei}`, JSON.stringify(liveData), { ex: 300 });
+    // Only update live position if this ping is newer than stored (skip out-of-order)
+    if (!existingPos || new Date(data.ts) >= new Date(existingPos.ts)) {
+      await redis.set(`device:${data.imei}`, JSON.stringify(liveData), { ex: 300 });
+    }
 
     if (vehicle_id && data.speed_kmh > cfg.overspeedThreshold) {
       await triggerAlert(vehicle_id, 'overspeed', 'warning', data.speed_kmh,

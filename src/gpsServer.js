@@ -456,6 +456,8 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
   const wantsStart    = ignitionKnown ? data.ignition === true  : isMoving;
   const wantsEnd      = ignitionKnown ? data.ignition === false : !isMoving;
 
+  console.log(`[Trip] device:${device_id} | vehicle:${vehicle_id} | ignition:${data.ignition} | speed:${data.speed_kmh} | wantsStart:${wantsStart} | wantsEnd:${wantsEnd} | tripActive:${!!tripState}`);
+
   // ── START ─────────────────────────────────────────────────────
   if (wantsStart && !tripState) {
     const result = await db.query(

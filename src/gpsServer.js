@@ -456,8 +456,6 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
   const wantsStart    = ignitionKnown ? data.ignition === true  : isMoving;
   const wantsEnd      = ignitionKnown ? data.ignition === false : !isMoving;
 
-  console.log(`[Trip] device:${device_id} | vehicle:${vehicle_id} | ignition:${data.ignition} | speed:${data.speed_kmh} | wantsStart:${wantsStart} | wantsEnd:${wantsEnd} | tripActive:${!!tripState}`);
-
   // ── START ─────────────────────────────────────────────────────
   if (wantsStart && !tripState) {
     const result = await db.query(
@@ -495,6 +493,11 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
 
   // ── UPDATE / DEBOUNCE-END ────────────────────────────────────
   if (tripState) {
+    // Skip out-of-order records (device buffer uploads arriving late)
+    if (new Date(data.ts) < new Date(tripState.last_ts)) {
+      return;
+    }
+
     // Vehicle resumed (ignition on or moving) — cancel any pending end
     if (wantsStart && tripState.end_candidate_ts) {
       tripState.end_candidate_ts = null;
@@ -680,12 +683,19 @@ async function savePing(data) {
     }
 
     // Store last known valid position for GT06N heartbeat-based trip/idle detection
-    await redis.set(`device:lastpos:${data.imei}`, JSON.stringify({
-      lat: data.latitude,
-      lng: data.longitude,
-      ts: data.ts,
-      speed: data.speed_kmh
-    }), { ex: 86400 });
+    // Only update if this ping is newer than what's stored (skip out-of-order records)
+    const rawExistingPos = await redis.get(`device:lastpos:${data.imei}`);
+    const existingPos = rawExistingPos
+      ? (typeof rawExistingPos === 'string' ? JSON.parse(rawExistingPos) : rawExistingPos)
+      : null;
+    if (!existingPos || new Date(data.ts) >= new Date(existingPos.ts)) {
+      await redis.set(`device:lastpos:${data.imei}`, JSON.stringify({
+        lat: data.latitude,
+        lng: data.longitude,
+        ts: data.ts,
+        speed: data.speed_kmh
+      }), { ex: 86400 });
+    }
 
     // Reset excessive idle alert when vehicle is moving again
     if (data.speed_kmh >= DEFAULTS.tripMinSpeed && vehicle_id) {

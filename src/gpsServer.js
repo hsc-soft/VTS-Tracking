@@ -788,6 +788,7 @@ function startGPSServer(port) {
     let buf = Buffer.alloc(0);
     let textMode = false;
     let gt06Mode = false;
+    const pktCount = { login: 0, gps: 0, hb: 0, other: 0 };
 
     const MAX_BUF = 65_536; // 64 KB — drop connection if a client sends garbage this large
 
@@ -842,12 +843,14 @@ function startGPSServer(port) {
             }
 
             if (proto === 0x01) {
+              pktCount.login++;
               if (pkt.length >= 12) {
                 imei = decodeGT06IMEI(pkt.subarray(4, 12));
                 console.log(`🔑 GT06 IMEI accepted: ${imei} from ${clientIP}`);
               }
               socket.write(buildGT06ACK(0x01, serial));
             } else if (proto === 0x12 || proto === 0x22) {
+              pktCount.gps++;
               const data = parseGT06GPS(content, imei);
               if (data) {
                 const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
@@ -859,6 +862,7 @@ function startGPSServer(port) {
               socket.write(buildGT06ACK(proto, serial));
               console.log(`✅ ACK 1 record(s) — IMEI: ${imei}`);
             } else if (proto === 0x13) {
+              pktCount.hb++;
               socket.write(buildGT06ACK(0x13, serial));
               const termInfo  = content[0] ?? 0;
               const gpsFix    = !!(termInfo & 0x40); // bit 6
@@ -942,6 +946,7 @@ function startGPSServer(port) {
                 }
               }
             } else {
+              pktCount.other++;
               console.log(`[GT06] Unknown proto: 0x${proto.toString(16).padStart(2,'0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
             }
           }
@@ -1030,7 +1035,11 @@ function startGPSServer(port) {
     });
 
     socket.on('close', () => {
-      console.log(`📴 Device disconnected: ${imei || clientIP}`);
+      if (gt06Mode) {
+        console.log(`📴 Device disconnected: ${imei || clientIP} | Session packets — Login:${pktCount.login} GPS:${pktCount.gps} HB:${pktCount.hb}`);
+      } else {
+        console.log(`📴 Device disconnected: ${imei || clientIP}`);
+      }
     });
 
     socket.setKeepAlive(true, 30000);

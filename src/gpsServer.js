@@ -912,6 +912,19 @@ function startGPSServer(port) {
 
                     if (devRes.rows.length > 0) {
                       const { device_id, vehicle_id } = devRes.rows[0];
+
+                      // Ignition state change via heartbeat ACC bit
+                      const prevAccRaw = await redis.get(`device:acc:${imei}`);
+                      const prevAcc = prevAccRaw === 'on';
+                      if (acc !== prevAcc) {
+                        await redis.set(`device:acc:${imei}`, acc ? 'on' : 'off', { ex: 86400 });
+                        if (vehicle_id) {
+                          await triggerAlert(vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
+                            acc ? 1 : 0, lastPos.lat, lastPos.lng);
+                          console.log(`🔑 Ignition ${acc ? 'ON' : 'OFF'} — IMEI: ${imei}`);
+                        }
+                      }
+
                       const cfg = resolveConfig({});
                       const now = new Date().toISOString();
 

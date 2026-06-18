@@ -697,6 +697,20 @@ async function savePing(data) {
       }), { ex: 86400 });
     }
 
+    await redis.set(`device:lastping:${data.imei}`, Date.now().toString(), { ex: 7200 });
+
+    // GPS jump detection: implied speed > 200 km/h between two valid pings = spoof or jump
+    if (existingPos && vehicle_id) {
+      const timeDiffMin = (new Date(data.ts) - new Date(existingPos.ts)) / 60000;
+      if (timeDiffMin > 0 && timeDiffMin < 10) {
+        const distKm = haversineKm(existingPos.lat, existingPos.lng, data.latitude, data.longitude);
+        if ((distKm / (timeDiffMin / 60)) > 200) {
+          await triggerAlert(vehicle_id, 'gps_jump', 'warning',
+            Math.round(distKm / (timeDiffMin / 60)), data.latitude, data.longitude);
+        }
+      }
+    }
+
     // Reset excessive idle alert when vehicle is moving again
     if (data.speed_kmh >= DEFAULTS.tripMinSpeed && vehicle_id) {
       await redis.del(`idle:alerted:${vehicle_id}`);
@@ -719,6 +733,12 @@ async function savePing(data) {
 
     if (vehicle_id && data.speed_kmh > cfg.overspeedThreshold) {
       await triggerAlert(vehicle_id, 'overspeed', 'warning', data.speed_kmh,
+        data.latitude, data.longitude);
+    }
+
+    // Tow detection: vehicle moving with ignition explicitly OFF
+    if (vehicle_id && data.ignition === false && (data.speed_kmh || 0) >= 5) {
+      await triggerAlert(vehicle_id, 'tow_alert', 'critical', data.speed_kmh || 0,
         data.latitude, data.longitude);
     }
 
@@ -788,7 +808,7 @@ function startGPSServer(port) {
     let buf = Buffer.alloc(0);
     let textMode = false;
     let gt06Mode = false;
-    const pktCount = { login: 0, gps: 0, hb: 0, other: 0 };
+    const pktCount = { login: 0, gps: 0, hb: 0, alarm: 0, other: 0 };
 
     const MAX_BUF = 65_536; // 64 KB — drop connection if a client sends garbage this large
 
@@ -874,6 +894,7 @@ function startGPSServer(port) {
               // GT06N doesn't send GPS when stationary — use heartbeat for trip end + idle detection
               if (imei) {
                 try {
+                  await redis.set(`device:lastping:${imei}`, Date.now().toString(), { ex: 7200 });
                   const rawLastPos = await redis.get(`device:lastpos:${imei}`);
                   if (!rawLastPos) {
                     console.log(`[HB] No lastpos for ${imei} — skipping live update`);
@@ -945,6 +966,51 @@ function startGPSServer(port) {
                   console.warn(`⚠️  Heartbeat trip/idle detection failed for ${imei}:`, hbErr.message);
                 }
               }
+            } else if (proto === 0x16) {
+              pktCount.alarm++;
+              const alarmType = content[26] ?? 0xFF;
+              const ALARM_NAMES = {
+                0x01: 'SOS', 0x02: 'Power cut', 0x03: 'Vibration',
+                0x04: 'Geofence enter', 0x05: 'Geofence exit', 0x06: 'Overspeed',
+                0x09: 'Displacement', 0x0E: 'Low battery',
+                0xFE: 'ACC OFF', 0xFF: 'ACC ON'
+              };
+              const alarmName = ALARM_NAMES[alarmType] || `type:0x${alarmType.toString(16).padStart(2,'0')}`;
+              const data = content.length >= 26 ? parseGT06GPS(content.subarray(0, 26), imei) : null;
+              if (data) {
+                if (alarmType === 0xFF) data.ignition = true;
+                else if (alarmType === 0xFE) data.ignition = false;
+                const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                console.log(`🚨 Alarm [${alarmName}] — IMEI: ${imei} | Ignition: ${data.ignition ? 'ON' : 'OFF'} | Time: ${recvTime}`);
+                await savePing(data);
+                const ALARM_ALERT_MAP = {
+                  0x01: { type: 'sos',         severity: 'critical' },
+                  0x02: { type: 'power_cut',   severity: 'critical' },
+                  0x03: { type: 'vibration',   severity: 'warning'  },
+                  0xFE: { type: 'ignition_off', severity: 'info'    },
+                  0xFF: { type: 'ignition_on',  severity: 'info'    },
+                };
+                const alertDef = ALARM_ALERT_MAP[alarmType];
+                if (alertDef && imei) {
+                  try {
+                    const devRes = await db.query(
+                      `SELECT v.id AS vehicle_id FROM devices d
+                       LEFT JOIN vehicles v ON v.device_id = d.id
+                       WHERE d.imei = $1 AND d.is_active = true`,
+                      [imei]
+                    );
+                    if (devRes.rows.length > 0 && devRes.rows[0].vehicle_id) {
+                      await triggerAlert(devRes.rows[0].vehicle_id, alertDef.type, alertDef.severity,
+                        alarmType, data.latitude, data.longitude);
+                    }
+                  } catch (alertErr) {
+                    console.warn(`⚠️  Alarm alert failed for ${imei}:`, alertErr.message);
+                  }
+                }
+              } else {
+                console.warn(`[GT06] Alarm 0x16 parse failed — IMEI: ${imei} | content len: ${content.length}`);
+              }
+              socket.write(buildGT06ACK(0x16, serial));
             } else {
               pktCount.other++;
               console.log(`[GT06] Unknown proto: 0x${proto.toString(16).padStart(2,'0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
@@ -1036,7 +1102,7 @@ function startGPSServer(port) {
 
     socket.on('close', () => {
       if (gt06Mode) {
-        console.log(`📴 Device disconnected: ${imei || clientIP} | Session packets — Login:${pktCount.login} GPS:${pktCount.gps} HB:${pktCount.hb}`);
+        console.log(`📴 Device disconnected: ${imei || clientIP} | Session packets — Login:${pktCount.login} GPS:${pktCount.gps} HB:${pktCount.hb} Alarm:${pktCount.alarm}`);
       } else {
         console.log(`📴 Device disconnected: ${imei || clientIP}`);
       }
@@ -1049,6 +1115,34 @@ function startGPSServer(port) {
   server.listen(port, () => {
     console.log(`🛰️  GPS TCP Server running on port ${port} [Teltonika Codec8Ext + GT06N]`);
   });
+
+  // Device offline detection: every 5 min, alert if no ping for 15+ min during active trip
+  setInterval(async () => {
+    try {
+      const devices = await db.query(
+        `SELECT d.imei, d.id AS device_id, v.id AS vehicle_id
+         FROM devices d
+         LEFT JOIN vehicles v ON v.device_id = d.id
+         WHERE d.is_active = true AND v.id IS NOT NULL`
+      );
+      for (const { imei, device_id, vehicle_id } of devices.rows) {
+        const lastPingMs = await redis.get(`device:lastping:${imei}`);
+        if (!lastPingMs) continue;
+        const ageMin = (Date.now() - Number(lastPingMs)) / 60000;
+        if (ageMin < 15 || ageMin > 120) continue; // 15–120 min window only
+        const tripRaw = await redis.get(`trip:active:${device_id}`);
+        if (!tripRaw) continue; // no active trip — device just parked, expected offline
+        const rawLastPos = await redis.get(`device:lastpos:${imei}`);
+        const lastPos = rawLastPos
+          ? (typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos)
+          : null;
+        await triggerAlert(vehicle_id, 'device_offline', 'critical',
+          Math.round(ageMin), lastPos?.lat ?? null, lastPos?.lng ?? null);
+      }
+    } catch (err) {
+      console.warn('⚠️  Offline check error:', err.message);
+    }
+  }, 5 * 60_000);
 
   server.on('error', (err) => {
     console.error('❌ GPS Server error:', err.message);

@@ -918,6 +918,20 @@ function startGPSServer(port) {
                       const prevAcc = prevAccRaw === 'on';
                       if (acc !== prevAcc) {
                         await redis.set(`device:acc:${imei}`, acc ? 'on' : 'off', { ex: 86400 });
+                        await savePing({
+                          imei,
+                          ts: new Date().toISOString(),
+                          latitude: lastPos.lat,
+                          longitude: lastPos.lng,
+                          speed_kmh: 0,
+                          heading: 0,
+                          ignition: acc,
+                          battery_v: null,
+                          satellites: null,
+                          altitude: 0,
+                          protocol: 'gt06_heartbeat',
+                          io: {}
+                        });
                         if (vehicle_id) {
                           await db.query(
                             `INSERT INTO alerts (vehicle_id, alert_type, severity, value, latitude, longitude)

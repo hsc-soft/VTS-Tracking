@@ -874,6 +874,11 @@ function startGPSServer(port) {
               const data = parseGT06GPS(content, imei);
               if (data) {
                 const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                if (pktCount.gps === 1) {
+                  const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                  const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
+                  console.log(`🚗 Movement upload — IMEI: ${imei} | GPS time: ${gpsTime} | Upload delay: ${delayMin} min`);
+                }
                 console.log(`📦 Data received — IMEI: ${imei} | Records: 1 | Time: ${recvTime}`);
                 await savePing(data);
               } else {

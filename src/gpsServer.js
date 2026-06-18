@@ -919,8 +919,12 @@ function startGPSServer(port) {
                       if (acc !== prevAcc) {
                         await redis.set(`device:acc:${imei}`, acc ? 'on' : 'off', { ex: 86400 });
                         if (vehicle_id) {
-                          await triggerAlert(vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
-                            acc ? 1 : 0, lastPos.lat, lastPos.lng);
+                          await db.query(
+                            `INSERT INTO alerts (vehicle_id, alert_type, severity, value, latitude, longitude)
+                             VALUES ($1,$2,$3,$4,$5,$6)`,
+                            [vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
+                             acc ? 1 : 0, lastPos.lat, lastPos.lng]
+                          );
                           console.log(`🔑 Ignition ${acc ? 'ON' : 'OFF'} — IMEI: ${imei}`);
                         }
                       }

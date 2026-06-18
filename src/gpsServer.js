@@ -889,7 +889,8 @@ function startGPSServer(port) {
               const acc       = !!(termInfo & 0x02); // bit 1
               const voltLevel = content[1] ?? '?';
               const signal    = content[2] ?? '?';
-              console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel}`);
+              const hbTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+              console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
 
               // GT06N doesn't send GPS when stationary — use heartbeat for trip end + idle detection
               if (imei) {

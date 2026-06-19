@@ -860,6 +860,22 @@ function startGPSServer(port) {
 
             if (crcCalc !== crcRecv) {
               console.warn(`[GT06] CRC warn | proto: 0x${proto.toString(16).padStart(2, '0')} | hex: ${pkt.toString('hex')} | calc: ${crcCalc.toString(16)} recv: ${crcRecv.toString(16)}`);
+              continue;
+            }
+
+            // ACK immediately
+            if (proto === 0x01 || proto === 0x12 || proto === 0x13 || proto === 0x16 || proto === 0x22) {
+
+              const ack = buildGT06ACK(proto, serial);
+
+              const sent = socket.write(ack);
+
+              console.log(
+                `ACK proto=0x${proto.toString(16)} serial=${serial} sent=${sent}`
+              );
+
+              // optional debug
+              // console.log("ACK =>", ack.toString("hex"));
             }
 
             if (proto === 0x01) {
@@ -876,16 +892,6 @@ function startGPSServer(port) {
                 console.log(`🔑 GT06 IMEI accepted: ${imei} from ${clientIP}`);
               }
 
-              const ack = buildGT06ACK(0x01, serial);
-
-              console.log(
-                "LOGIN ACK =>",
-                ack.toString("hex")
-              );
-
-              socket.write(ack);
-
-              // socket.write(buildGT06ACK(0x01, serial));
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);
@@ -901,28 +907,10 @@ function startGPSServer(port) {
               } else {
                 console.warn(`[GT06] GPS parse failed — IMEI: ${imei} | content len: ${content.length} | hex: ${content.toString('hex')}`);
               }
-              socket.write(buildGT06ACK(proto, serial));
               console.log(`✅ ACK 1 record(s) — IMEI: ${imei}`);
             } else if (proto === 0x13) {
               pktCount.hb++;
-              const ack = buildGT06ACK(0x13, serial);
-/*
-              console.log(
-                "HB ACK =>",
-                ack.toString("hex")
-              );
-              */
-/*
-              socket.write(ack);
 
-              console.log(
-                "HB PKT",
-                pkt.toString("hex")
-              );
-
-              */
-
-              // socket.write(buildGT06ACK(0x13, serial));
               const termInfo = content[0] ?? 0;
               const gpsFix = !!(termInfo & 0x40); // bit 6
               const acc = !!(termInfo & 0x02); // bit 1
@@ -1081,7 +1069,6 @@ function startGPSServer(port) {
               } else {
                 console.warn(`[GT06] Alarm 0x16 parse failed — IMEI: ${imei} | content len: ${content.length}`);
               }
-              socket.write(buildGT06ACK(0x16, serial));
             } else {
               pktCount.other++;
               console.log(`[GT06] Unknown proto: 0x${proto.toString(16).padStart(2, '0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);

@@ -837,6 +837,7 @@ function startGPSServer(port) {
         }
 
         if (gt06Mode) {
+          console.log(Buffer);
           const END = Buffer.from([0x0D, 0x0A]);
           while (true) {
             if (buf.length < 6) break;

@@ -134,38 +134,38 @@ function parseCodec8Extended(buffer, imei) {
 // ── GT06N PROTOCOL ────────────────────────────────────────────────
 // CRC-ITU: lookup table, init=0xFFFF, final=~fcs (as per SK05S protocol doc)
 const GT06_CRC_TABLE = [
-  0x0000,0x1189,0x2312,0x329b,0x4624,0x57ad,0x6536,0x74bf,
-  0x8c48,0x9dc1,0xaf5a,0xbed3,0xca6c,0xdbe5,0xe97e,0xf8f7,
-  0x1081,0x0108,0x3393,0x221a,0x56a5,0x472c,0x75b7,0x643e,
-  0x9cc9,0x8d40,0xbfdb,0xae52,0xdaed,0xcb64,0xf9ff,0xe876,
-  0x2102,0x308b,0x0210,0x1399,0x6726,0x76af,0x4434,0x55bd,
-  0xad4a,0xbcc3,0x8e58,0x9fd1,0xeb6e,0xfae7,0xc87c,0xd9f5,
-  0x3183,0x200a,0x1291,0x0318,0x77a7,0x662e,0x54b5,0x453c,
-  0xbdcb,0xac42,0x9ed9,0x8f50,0xfbef,0xea66,0xd8fd,0xc974,
-  0x4204,0x538d,0x6116,0x709f,0x0420,0x15a9,0x2732,0x36bb,
-  0xce4c,0xdfc5,0xed5e,0xfcd7,0x8868,0x99e1,0xab7a,0xbaf3,
-  0x5285,0x430c,0x7197,0x601e,0x14a1,0x0528,0x37b3,0x263a,
-  0xdecd,0xcf44,0xfddf,0xec56,0x98e9,0x8960,0xbbfb,0xaa72,
-  0x6306,0x728f,0x4014,0x519d,0x2522,0x34ab,0x0630,0x17b9,
-  0xef4e,0xfec7,0xcc5c,0xddd5,0xa96a,0xb8e3,0x8a78,0x9bf1,
-  0x7387,0x620e,0x5095,0x411c,0x35a3,0x242a,0x16b1,0x0738,
-  0xffcf,0xee46,0xdcdd,0xcd54,0xb9eb,0xa862,0x9af9,0x8b70,
-  0x8408,0x9581,0xa71a,0xb693,0xc22c,0xd3a5,0xe13e,0xf0b7,
-  0x0840,0x19c9,0x2b52,0x3adb,0x4e64,0x5fed,0x6d76,0x7cff,
-  0x9489,0x8500,0xb79b,0xa612,0xd2ad,0xc324,0xf1bf,0xe036,
-  0x18c1,0x0948,0x3bd3,0x2a5a,0x5ee5,0x4f6c,0x7df7,0x6c7e,
-  0xa50a,0xb483,0x8618,0x9791,0xe32e,0xf2a7,0xc03c,0xd1b5,
-  0x2942,0x38cb,0x0a50,0x1bd9,0x6f66,0x7eef,0x4c74,0x5dfd,
-  0xb58b,0xa402,0x9699,0x8710,0xf3af,0xe226,0xd0bd,0xc134,
-  0x39c3,0x284a,0x1ad1,0x0b58,0x7fe7,0x6e6e,0x5cf5,0x4d7c,
-  0xc60c,0xd785,0xe51e,0xf497,0x8028,0x91a1,0xa33a,0xb2b3,
-  0x4a44,0x5bcd,0x6956,0x78df,0x0c60,0x1de9,0x2f72,0x3efb,
-  0xd68d,0xc704,0xf59f,0xe416,0x90a9,0x8120,0xb3bb,0xa232,
-  0x5ac5,0x4b4c,0x79d7,0x685e,0x1ce1,0x0d68,0x3ff3,0x2e7a,
-  0xe70e,0xf687,0xc41c,0xd595,0xa12a,0xb0a3,0x8238,0x93b1,
-  0x6b46,0x7acf,0x4854,0x59dd,0x2d62,0x3ceb,0x0e70,0x1ff9,
-  0xf78f,0xe606,0xd49d,0xc514,0xb1ab,0xa022,0x92b9,0x8330,
-  0x7bc7,0x6a4e,0x58d5,0x495c,0x3de3,0x2c6a,0x1ef1,0x0f78
+  0x0000, 0x1189, 0x2312, 0x329b, 0x4624, 0x57ad, 0x6536, 0x74bf,
+  0x8c48, 0x9dc1, 0xaf5a, 0xbed3, 0xca6c, 0xdbe5, 0xe97e, 0xf8f7,
+  0x1081, 0x0108, 0x3393, 0x221a, 0x56a5, 0x472c, 0x75b7, 0x643e,
+  0x9cc9, 0x8d40, 0xbfdb, 0xae52, 0xdaed, 0xcb64, 0xf9ff, 0xe876,
+  0x2102, 0x308b, 0x0210, 0x1399, 0x6726, 0x76af, 0x4434, 0x55bd,
+  0xad4a, 0xbcc3, 0x8e58, 0x9fd1, 0xeb6e, 0xfae7, 0xc87c, 0xd9f5,
+  0x3183, 0x200a, 0x1291, 0x0318, 0x77a7, 0x662e, 0x54b5, 0x453c,
+  0xbdcb, 0xac42, 0x9ed9, 0x8f50, 0xfbef, 0xea66, 0xd8fd, 0xc974,
+  0x4204, 0x538d, 0x6116, 0x709f, 0x0420, 0x15a9, 0x2732, 0x36bb,
+  0xce4c, 0xdfc5, 0xed5e, 0xfcd7, 0x8868, 0x99e1, 0xab7a, 0xbaf3,
+  0x5285, 0x430c, 0x7197, 0x601e, 0x14a1, 0x0528, 0x37b3, 0x263a,
+  0xdecd, 0xcf44, 0xfddf, 0xec56, 0x98e9, 0x8960, 0xbbfb, 0xaa72,
+  0x6306, 0x728f, 0x4014, 0x519d, 0x2522, 0x34ab, 0x0630, 0x17b9,
+  0xef4e, 0xfec7, 0xcc5c, 0xddd5, 0xa96a, 0xb8e3, 0x8a78, 0x9bf1,
+  0x7387, 0x620e, 0x5095, 0x411c, 0x35a3, 0x242a, 0x16b1, 0x0738,
+  0xffcf, 0xee46, 0xdcdd, 0xcd54, 0xb9eb, 0xa862, 0x9af9, 0x8b70,
+  0x8408, 0x9581, 0xa71a, 0xb693, 0xc22c, 0xd3a5, 0xe13e, 0xf0b7,
+  0x0840, 0x19c9, 0x2b52, 0x3adb, 0x4e64, 0x5fed, 0x6d76, 0x7cff,
+  0x9489, 0x8500, 0xb79b, 0xa612, 0xd2ad, 0xc324, 0xf1bf, 0xe036,
+  0x18c1, 0x0948, 0x3bd3, 0x2a5a, 0x5ee5, 0x4f6c, 0x7df7, 0x6c7e,
+  0xa50a, 0xb483, 0x8618, 0x9791, 0xe32e, 0xf2a7, 0xc03c, 0xd1b5,
+  0x2942, 0x38cb, 0x0a50, 0x1bd9, 0x6f66, 0x7eef, 0x4c74, 0x5dfd,
+  0xb58b, 0xa402, 0x9699, 0x8710, 0xf3af, 0xe226, 0xd0bd, 0xc134,
+  0x39c3, 0x284a, 0x1ad1, 0x0b58, 0x7fe7, 0x6e6e, 0x5cf5, 0x4d7c,
+  0xc60c, 0xd785, 0xe51e, 0xf497, 0x8028, 0x91a1, 0xa33a, 0xb2b3,
+  0x4a44, 0x5bcd, 0x6956, 0x78df, 0x0c60, 0x1de9, 0x2f72, 0x3efb,
+  0xd68d, 0xc704, 0xf59f, 0xe416, 0x90a9, 0x8120, 0xb3bb, 0xa232,
+  0x5ac5, 0x4b4c, 0x79d7, 0x685e, 0x1ce1, 0x0d68, 0x3ff3, 0x2e7a,
+  0xe70e, 0xf687, 0xc41c, 0xd595, 0xa12a, 0xb0a3, 0x8238, 0x93b1,
+  0x6b46, 0x7acf, 0x4854, 0x59dd, 0x2d62, 0x3ceb, 0x0e70, 0x1ff9,
+  0xf78f, 0xe606, 0xd49d, 0xc514, 0xb1ab, 0xa022, 0x92b9, 0x8330,
+  0x7bc7, 0x6a4e, 0x58d5, 0x495c, 0x3de3, 0x2c6a, 0x1ef1, 0x0f78
 ];
 function crc16GT06(buf) {
   let fcs = 0xFFFF;
@@ -206,27 +206,27 @@ function parseGT06GPS(content, imei) {
   const ts = new Date(Date.UTC(2000 + yy, mm - 1, dd, hh, mi, ss)).toISOString();
 
   // Satellite byte: high nibble = GPS data length, low nibble = satellite count
-  const satByte    = content[off++];
+  const satByte = content[off++];
   const satellites = satByte & 0x0F;
 
   if (content.length < off + 10) return null;
   const latRaw = content.readUInt32BE(off); off += 4;
   const lngRaw = content.readUInt32BE(off); off += 4;
 
-  let latitude  = latRaw  / 1800000.0;
+  let latitude = latRaw / 1800000.0;
   let longitude = lngRaw / 1800000.0;
 
-  const speed_kmh  = content[off++];
+  const speed_kmh = content[off++];
   const statusByte = content[off++]; // bit6=ACC, bit4=GPS fix, bit3=West, bit2=North
   const headingLow = content.length > off ? content[off++] : 0;
 
-  const heading  = ((statusByte & 0x03) << 8) | headingLow;
+  const heading = ((statusByte & 0x03) << 8) | headingLow;
   const ignition = !!(statusByte & 0x40); // bit 6 = ACC (ignition)
-  const isWest   = !!(statusByte & 0x08); // bit 3
-  const isNorth  = !!(statusByte & 0x04); // bit 2 (1=North, 0=South)
+  const isWest = !!(statusByte & 0x08); // bit 3
+  const isNorth = !!(statusByte & 0x04); // bit 2 (1=North, 0=South)
 
-  if (!isNorth) latitude  = -latitude;
-  if (isWest)   longitude = -longitude;
+  if (!isNorth) latitude = -latitude;
+  if (isWest) longitude = -longitude;
 
   return {
     imei, ts, latitude, longitude,
@@ -296,7 +296,7 @@ function isInsidePolygon(lat, lng, polygon) {
     const xi = polygon[i].lng, yi = polygon[i].lat;
     const xj = polygon[j].lng, yj = polygon[j].lat;
     if (((yi > lat) !== (yj > lat)) &&
-        (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+      (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
       inside = !inside;
     }
   }
@@ -306,7 +306,7 @@ function isInsidePolygon(lat, lng, polygon) {
 // Load active geofences for an account, cached in Redis for 60 s
 async function loadGeofences(account_id) {
   const cacheKey = `geofences:${account_id}`;
-  const cached   = await redis.get(cacheKey);
+  const cached = await redis.get(cacheKey);
   if (cached) return typeof cached === 'string' ? JSON.parse(cached) : cached;
 
   const result = await db.query(
@@ -382,7 +382,7 @@ async function fireGeofenceEvent(gf, vehicle_id, event_type, data) {
   );
 
   await triggerAlert(vehicle_id, `geofence_${event_type}`, 'info',
-                     gf.name, data.latitude, data.longitude);
+    gf.name, data.latitude, data.longitude);
 
   await redis.publish(`geofence:${vehicle_id}`, JSON.stringify({
     event_type, geofence_id: gf.id, geofence_name: gf.name,
@@ -397,14 +397,14 @@ async function fireGeofenceEvent(gf, vehicle_id, event_type, data) {
 // Server-side defaults — used when the device does not send the
 // corresponding IO element in its AVL packet.
 const DEFAULTS = {
-  tripMinSpeed:          3,    // km/h — movement threshold & idle detection
-  tripMaxJumpKm:         2,    // km   — GPS glitch guard (never device-overridden)
-  overspeedThreshold:    60,   // km/h — overspeed alert & counter
-  harshBrakeThreshold:   25,   // km/h drop between consecutive pings
-  fuelLPerKm:            0.10, // L/km while moving
-  fuelIdleLPerHour:      0.50, // L/h  while idling
-  excessiveIdleMinutes:  5,    // minutes of continuous idle before alert fires
-  tripEndDebounceSec:    180,  // seconds ignition-off must hold before trip closes
+  tripMinSpeed: 3,    // km/h — movement threshold & idle detection
+  tripMaxJumpKm: 2,    // km   — GPS glitch guard (never device-overridden)
+  overspeedThreshold: 60,   // km/h — overspeed alert & counter
+  harshBrakeThreshold: 25,   // km/h drop between consecutive pings
+  fuelLPerKm: 0.10, // L/km while moving
+  fuelIdleLPerHour: 0.50, // L/h  while idling
+  excessiveIdleMinutes: 5,    // minutes of continuous idle before alert fires
+  tripEndDebounceSec: 180,  // seconds ignition-off must hold before trip closes
 };
 
 // Map each setting to the Teltonika AVL IO ID that carries it.
@@ -413,13 +413,13 @@ const DEFAULTS = {
 const IO_CONFIG_IDS = {
   // AVL 183 is the current speed reading, NOT a speed-limit threshold — leave null
   // To override, set this to the IO ID your device uses for configured speed limit
-  overspeedThreshold:   null,
-  harshBrakeThreshold:  null,
-  tripMinSpeed:         null,
-  fuelLPerKm:           null,
-  fuelIdleLPerHour:     null,
+  overspeedThreshold: null,
+  harshBrakeThreshold: null,
+  tripMinSpeed: null,
+  fuelLPerKm: null,
+  fuelIdleLPerHour: null,
   excessiveIdleMinutes: null,
-  tripEndDebounceSec:   null,
+  tripEndDebounceSec: null,
 };
 
 // Merge device IO values with server defaults.
@@ -429,14 +429,14 @@ function resolveConfig(io = {}) {
     (id != null && io[id] != null) ? Number(io[id]) : fallback;
 
   return {
-    tripMinSpeed:          pick(IO_CONFIG_IDS.tripMinSpeed,          DEFAULTS.tripMinSpeed),
-    tripMaxJumpKm:         DEFAULTS.tripMaxJumpKm,
-    overspeedThreshold:    pick(IO_CONFIG_IDS.overspeedThreshold,    DEFAULTS.overspeedThreshold),
-    harshBrakeThreshold:   pick(IO_CONFIG_IDS.harshBrakeThreshold,   DEFAULTS.harshBrakeThreshold),
-    fuelLPerKm:            pick(IO_CONFIG_IDS.fuelLPerKm,            DEFAULTS.fuelLPerKm),
-    fuelIdleLPerHour:      pick(IO_CONFIG_IDS.fuelIdleLPerHour,      DEFAULTS.fuelIdleLPerHour),
-    excessiveIdleMinutes:  pick(IO_CONFIG_IDS.excessiveIdleMinutes,  DEFAULTS.excessiveIdleMinutes),
-    tripEndDebounceSec:    pick(IO_CONFIG_IDS.tripEndDebounceSec,    DEFAULTS.tripEndDebounceSec),
+    tripMinSpeed: pick(IO_CONFIG_IDS.tripMinSpeed, DEFAULTS.tripMinSpeed),
+    tripMaxJumpKm: DEFAULTS.tripMaxJumpKm,
+    overspeedThreshold: pick(IO_CONFIG_IDS.overspeedThreshold, DEFAULTS.overspeedThreshold),
+    harshBrakeThreshold: pick(IO_CONFIG_IDS.harshBrakeThreshold, DEFAULTS.harshBrakeThreshold),
+    fuelLPerKm: pick(IO_CONFIG_IDS.fuelLPerKm, DEFAULTS.fuelLPerKm),
+    fuelIdleLPerHour: pick(IO_CONFIG_IDS.fuelIdleLPerHour, DEFAULTS.fuelIdleLPerHour),
+    excessiveIdleMinutes: pick(IO_CONFIG_IDS.excessiveIdleMinutes, DEFAULTS.excessiveIdleMinutes),
+    tripEndDebounceSec: pick(IO_CONFIG_IDS.tripEndDebounceSec, DEFAULTS.tripEndDebounceSec),
   };
 }
 
@@ -452,9 +452,9 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
 
   // null means AVL 239 was not present in this packet — don't treat as OFF
   const ignitionKnown = data.ignition === true || data.ignition === false;
-  const isMoving      = data.speed_kmh >= cfg.tripMinSpeed;
-  const wantsStart    = ignitionKnown ? data.ignition === true  : isMoving;
-  const wantsEnd      = ignitionKnown ? data.ignition === false : !isMoving;
+  const isMoving = data.speed_kmh >= cfg.tripMinSpeed;
+  const wantsStart = ignitionKnown ? data.ignition === true : isMoving;
+  const wantsEnd = ignitionKnown ? data.ignition === false : !isMoving;
 
   // ── START ─────────────────────────────────────────────────────
   if (wantsStart && !tripState) {
@@ -469,20 +469,20 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
     );
 
     const newState = {
-      trip_id:          result.rows[0].id,
-      start_ts:         data.ts,
-      last_lat:         data.latitude,
-      last_lng:         data.longitude,
-      last_ts:          data.ts,
-      distance_km:      0,
-      max_speed:        data.speed_kmh,
-      idle_seconds:     0,
-      harsh_braking:    0,
-      overspeeds:       0,
-      in_overspeed:     data.speed_kmh > cfg.overspeedThreshold,
-      prev_speed:       data.speed_kmh,
-      idle_start_ts:    null,
-      idle_alerted:     false,
+      trip_id: result.rows[0].id,
+      start_ts: data.ts,
+      last_lat: data.latitude,
+      last_lng: data.longitude,
+      last_ts: data.ts,
+      distance_km: 0,
+      max_speed: data.speed_kmh,
+      idle_seconds: 0,
+      harsh_braking: 0,
+      overspeeds: 0,
+      in_overspeed: data.speed_kmh > cfg.overspeedThreshold,
+      prev_speed: data.speed_kmh,
+      idle_start_ts: null,
+      idle_alerted: false,
       end_candidate_ts: null,  // set when ignition-off debounce begins
     };
 
@@ -528,7 +528,7 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
 
       if (!tripState.idle_start_ts) {
         tripState.idle_start_ts = data.ts;
-        tripState.idle_alerted  = false;
+        tripState.idle_alerted = false;
       }
 
       const continuousIdleSec =
@@ -549,7 +549,7 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
       }
     } else {
       tripState.idle_start_ts = null;
-      tripState.idle_alerted  = false;
+      tripState.idle_alerted = false;
     }
 
     const speedDrop = tripState.prev_speed - data.speed_kmh;
@@ -567,9 +567,9 @@ async function processTripDetection(device_id, vehicle_id, data, cfg) {
     }
 
     tripState.prev_speed = data.speed_kmh;
-    tripState.last_lat   = data.latitude;
-    tripState.last_lng   = data.longitude;
-    tripState.last_ts    = data.ts;
+    tripState.last_lat = data.latitude;
+    tripState.last_lng = data.longitude;
+    tripState.last_ts = data.ts;
 
     // Check whether the debounce window has expired → close trip
     if (tripState.end_candidate_ts) {
@@ -764,7 +764,7 @@ async function savePing(data) {
     );
 
   } catch (err) {
-    console.error('❌ Save ping error:', err.message,err.stack);
+    console.error('❌ Save ping error:', err.message, err.stack);
   }
 }
 
@@ -846,29 +846,46 @@ function startGPSServer(port) {
             if (endIdx === -1) break;
 
             const pkt = buf.subarray(0, endIdx + 2);
-            buf       = buf.subarray(endIdx + 2);
+            buf = buf.subarray(endIdx + 2);
 
             if (pkt.length < 6) continue;
 
-            const L     = pkt[2];
-            const proto  = pkt[3];
+            const L = pkt[2];
+            const proto = pkt[3];
             // content = everything after proto, before last 4 bytes (serial 2 + CRC 2)
             const content = pkt.subarray(4, pkt.length - 6); // exclude serial+CRC+0D0A
-            const serial  = pkt.readUInt16BE(pkt.length - 6);
+            const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
             const crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4)); // len→serial
 
             if (crcCalc !== crcRecv) {
-              console.warn(`[GT06] CRC warn | proto: 0x${proto.toString(16).padStart(2,'0')} | hex: ${pkt.toString('hex')} | calc: ${crcCalc.toString(16)} recv: ${crcRecv.toString(16)}`);
+              console.warn(`[GT06] CRC warn | proto: 0x${proto.toString(16).padStart(2, '0')} | hex: ${pkt.toString('hex')} | calc: ${crcCalc.toString(16)} recv: ${crcRecv.toString(16)}`);
             }
 
             if (proto === 0x01) {
+              console.log(
+                "LOGIN PKT",
+                pkt.toString("hex")
+              );
+
+
+
               pktCount.login++;
               if (pkt.length >= 12) {
                 imei = decodeGT06IMEI(pkt.subarray(4, 12));
                 console.log(`🔑 GT06 IMEI accepted: ${imei} from ${clientIP}`);
               }
-              socket.write(buildGT06ACK(0x01, serial));
+
+              const ack = buildGT06ACK(0x01, serial);
+
+              console.log(
+                "LOGIN ACK =>",
+                ack.toString("hex")
+              );
+
+              socket.write(ack);
+
+              // socket.write(buildGT06ACK(0x01, serial));
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);
@@ -888,12 +905,26 @@ function startGPSServer(port) {
               console.log(`✅ ACK 1 record(s) — IMEI: ${imei}`);
             } else if (proto === 0x13) {
               pktCount.hb++;
-              socket.write(buildGT06ACK(0x13, serial));
-              const termInfo  = content[0] ?? 0;
-              const gpsFix    = !!(termInfo & 0x40); // bit 6
-              const acc       = !!(termInfo & 0x02); // bit 1
+              const ack = buildGT06ACK(0x13, serial);
+
+              console.log(
+                "HB ACK =>",
+                ack.toString("hex")
+              );
+
+              socket.write(ack);
+
+              console.log(
+                "HB PKT",
+                pkt.toString("hex")
+              );
+
+              // socket.write(buildGT06ACK(0x13, serial));
+              const termInfo = content[0] ?? 0;
+              const gpsFix = !!(termInfo & 0x40); // bit 6
+              const acc = !!(termInfo & 0x02); // bit 1
               const voltLevel = content[1] ?? '?';
-              const signal    = content[2] ?? '?';
+              const signal = content[2] ?? '?';
               const hbTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
               console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
 
@@ -943,7 +974,7 @@ function startGPSServer(port) {
                             `INSERT INTO alerts (vehicle_id, alert_type, severity, value, latitude, longitude)
                              VALUES ($1,$2,$3,$4,$5,$6)`,
                             [vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
-                             acc ? 1 : 0, lastPos.lat, lastPos.lng]
+                              acc ? 1 : 0, lastPos.lat, lastPos.lng]
                           );
                           console.log(`🔑 Ignition ${acc ? 'ON' : 'OFF'} — IMEI: ${imei}`);
                         }
@@ -1012,7 +1043,7 @@ function startGPSServer(port) {
                 0x09: 'Displacement', 0x0E: 'Low battery',
                 0xFE: 'ACC OFF', 0xFF: 'ACC ON'
               };
-              const alarmName = ALARM_NAMES[alarmType] || `type:0x${alarmType.toString(16).padStart(2,'0')}`;
+              const alarmName = ALARM_NAMES[alarmType] || `type:0x${alarmType.toString(16).padStart(2, '0')}`;
               const data = content.length >= 26 ? parseGT06GPS(content.subarray(0, 26), imei) : null;
               if (data) {
                 if (alarmType === 0xFF) data.ignition = true;
@@ -1021,11 +1052,11 @@ function startGPSServer(port) {
                 console.log(`🚨 Alarm [${alarmName}] — IMEI: ${imei} | Ignition: ${data.ignition ? 'ON' : 'OFF'} | Time: ${recvTime}`);
                 await savePing(data);
                 const ALARM_ALERT_MAP = {
-                  0x01: { type: 'sos',         severity: 'critical' },
-                  0x02: { type: 'power_cut',   severity: 'critical' },
-                  0x03: { type: 'vibration',   severity: 'warning'  },
-                  0xFE: { type: 'ignition_off', severity: 'info'    },
-                  0xFF: { type: 'ignition_on',  severity: 'info'    },
+                  0x01: { type: 'sos', severity: 'critical' },
+                  0x02: { type: 'power_cut', severity: 'critical' },
+                  0x03: { type: 'vibration', severity: 'warning' },
+                  0xFE: { type: 'ignition_off', severity: 'info' },
+                  0xFF: { type: 'ignition_on', severity: 'info' },
                 };
                 const alertDef = ALARM_ALERT_MAP[alarmType];
                 if (alertDef && imei) {
@@ -1050,7 +1081,7 @@ function startGPSServer(port) {
               socket.write(buildGT06ACK(0x16, serial));
             } else {
               pktCount.other++;
-              console.log(`[GT06] Unknown proto: 0x${proto.toString(16).padStart(2,'0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
+              console.log(`[GT06] Unknown proto: 0x${proto.toString(16).padStart(2, '0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
             }
           }
           return;
@@ -1122,31 +1153,74 @@ function startGPSServer(port) {
         socket.resume();
       }
     });
+    /*
+        socket.on('error', (err) => {
+          // ETIMEDOUT / ECONNRESET are normal when a device drops off a mobile network
+          if (err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET') {
+            console.log(`📴 Device dropped (${err.code}): ${imei || clientIP}`);
+          } else {
+            console.error(`❌ Socket error (${imei || clientIP}):`, err.message);
+          }
+        });
+    
+        */
 
-    socket.on('error', (err) => {
-      // ETIMEDOUT / ECONNRESET are normal when a device drops off a mobile network
-      if (err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET') {
-        console.log(`📴 Device dropped (${err.code}): ${imei || clientIP}`);
-      } else {
-        console.error(`❌ Socket error (${imei || clientIP}):`, err.message);
-      }
+    socket.on("error", (err) => {
+
+      console.log({
+
+        code: err.code,
+
+        errno: err.errno,
+
+        syscall: err.syscall,
+
+        message: err.message
+
+      });
+
     });
 
     socket.on('timeout', () => {
       console.log(`⏱️  Idle timeout — closing: ${imei || clientIP}`);
       socket.destroy();
     });
+    /*
+        socket.on('close', () => {
+          if (gt06Mode) {
+            console.log(`📴 Device disconnected: ${imei || clientIP} | Session packets — Login:${pktCount.login} GPS:${pktCount.gps} HB:${pktCount.hb} Alarm:${pktCount.alarm}`);
+          } else {
+            console.log(`📴 Device disconnected: ${imei || clientIP}`);
+          }
+        });
+        */
 
-    socket.on('close', () => {
+    socket.on("close", (hadError) => {
+
+      console.log(
+        `❌ CLOSE IMEI:${imei}
+         hadError:${hadError}
+         read:${socket.bytesRead}
+         write:${socket.bytesWritten}`
+      );
+
       if (gt06Mode) {
-        console.log(`📴 Device disconnected: ${imei || clientIP} | Session packets — Login:${pktCount.login} GPS:${pktCount.gps} HB:${pktCount.hb} Alarm:${pktCount.alarm}`);
+
+        console.log(
+          `Session packets Login:${pktCount.login}
+             GPS:${pktCount.gps}
+             HB:${pktCount.hb}
+             Alarm:${pktCount.alarm}`
+        );
+
       } else {
         console.log(`📴 Device disconnected: ${imei || clientIP}`);
       }
+
     });
 
     socket.setKeepAlive(true, 30000);
-    socket.setTimeout(120_000); // destroy after 2 min of no data
+    // socket.setTimeout(120_000); // destroy after 2 min of no data
   });
 
   server.listen(port, () => {

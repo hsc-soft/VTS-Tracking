@@ -962,7 +962,7 @@ function startGPSServer(port) {
             }
 
             // ACK immediately
-            if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x94].includes(proto)) {
+            if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
               let ack;
 
               //if (isShort) {

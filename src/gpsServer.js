@@ -919,7 +919,7 @@ function startGPSServer(port) {
 
             }
             else if (proto == 0x94) {
-              console.log("0x94 received, ignored");
+              console.log("0x94 RAW:", pkt.toString("hex"));
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);

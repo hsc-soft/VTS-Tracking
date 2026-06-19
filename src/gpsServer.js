@@ -965,11 +965,11 @@ function startGPSServer(port) {
             if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x94].includes(proto)) {
               let ack;
 
-              if (isShort) {
-                ack = buildGT06ACK(proto, serial);
-              } else {
-                ack = buildGT06ACK79(proto, serial);
-              }
+              //if (isShort) {
+              ack = buildGT06ACK(proto, serial);
+              // } else {
+              //   ack = buildGT06ACK79(proto, serial);
+              // }
 
               console.log("ACK =>", ack.toString("hex"));
 
@@ -1017,10 +1017,8 @@ function startGPSServer(port) {
 
             }
             else if (proto == 0x94) {
-              socket.write(buildGT06ACK(proto, serial));
-              console.log("ACK 94 SENT");
+              console.log("0x94 received, no ACK sent");
               continue;
-
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);

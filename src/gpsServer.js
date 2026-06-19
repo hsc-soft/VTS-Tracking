@@ -1147,7 +1147,7 @@ function startGPSServer(port) {
     });
 
     socket.on('error', (err) => {
-      console.log( "Reconnect Gap(ms):",Date.now() - (clients.get(imei)?.lastSeen || 0));
+      
       // ETIMEDOUT / ECONNRESET are normal when a device drops off a mobile network
       if (err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET') {
         console.log(`📴 Device dropped (${err.code}): ${imei || clientIP}`);

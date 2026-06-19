@@ -815,7 +815,7 @@ function startGPSServer(port) {
     socket.on('data', async (chunk) => {
       // Pause prevents a second 'data' event from firing while we await savePing(),
       // which would corrupt the shared `buf` state.
-      socket.pause();
+      // socket.pause();
       try {
         buf = Buffer.concat([buf, chunk]);
 
@@ -841,12 +841,27 @@ function startGPSServer(port) {
           while (true) {
             if (buf.length < 6) break;
             if (buf[0] !== 0x78 || buf[1] !== 0x78) { buf = buf.subarray(1); continue; }
+            /*
+                        const endIdx = buf.indexOf(END, 4);
+                        if (endIdx === -1) break;
+            
+                        const pkt = buf.subarray(0, endIdx + 2);
+                        buf = buf.subarray(endIdx + 2);
+            
+                        */
 
-            const endIdx = buf.indexOf(END, 4);
-            if (endIdx === -1) break;
+            const len = buf[2];
 
-            const pkt = buf.subarray(0, endIdx + 2);
-            buf = buf.subarray(endIdx + 2);
+            const totalLen = len + 5;
+
+            if (buf.length < totalLen) {
+
+              break;
+
+            }
+
+            const pkt = buf.subarray(0, totalLen);
+            buf = buf.subarray(totalLen);
 
             if (pkt.length < 6) continue;
 
@@ -879,12 +894,12 @@ function startGPSServer(port) {
             }
 
             if (proto === 0x01) {
-/*
-              console.log(
-                "LOGIN PKT",
-                pkt.toString("hex")
-              );
-              */
+              /*
+                            console.log(
+                              "LOGIN PKT",
+                              pkt.toString("hex")
+                            );
+                            */
 
 
 
@@ -898,14 +913,37 @@ function startGPSServer(port) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);
               if (data) {
-                const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                if (pktCount.gps === 1) {
-                  const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                  const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
-                  console.log(`🚗 Movement upload — IMEI: ${imei} | GPS time: ${gpsTime} | Upload delay: ${delayMin} min`);
-                }
-                console.log(`📦 Data received — IMEI: ${imei} | Records: 1 | Time: ${recvTime}`);
-                await savePing(data);
+
+                setImmediate(async () => {
+
+                  try {
+
+                    const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                    if (pktCount.gps === 1) {
+                      const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                      const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
+                      console.log(`🚗 Movement upload — IMEI: ${imei} | GPS time: ${gpsTime} | Upload delay: ${delayMin} min`);
+                    }
+                    console.log(`📦 Data received — IMEI: ${imei} | Records: 1 | Time: ${recvTime}`);
+                    await savePing(data);
+
+                  } catch (e) {
+
+                    console.error(e);
+
+                  }
+                });
+                /*
+                                const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                                if (pktCount.gps === 1) {
+                                  const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                                  const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
+                                  console.log(`🚗 Movement upload — IMEI: ${imei} | GPS time: ${gpsTime} | Upload delay: ${delayMin} min`);
+                                }
+                                console.log(`📦 Data received — IMEI: ${imei} | Records: 1 | Time: ${recvTime}`);
+                                await savePing(data);
+                */
+
               } else {
                 console.warn(`[GT06] GPS parse failed — IMEI: ${imei} | content len: ${content.length} | hex: ${content.toString('hex')}`);
               }
@@ -987,7 +1025,16 @@ function startGPSServer(port) {
                           battery_v: null, satellites: null,
                           protocol: 'gt06_heartbeat', io: {}
                         };
-                        await processTripDetection(device_id, vehicle_id, hbData, cfg);
+                        setImmediate(async () => {
+                          try {
+                            await processTripDetection(device_id, vehicle_id, hbData, cfg);
+                          } catch (e) {
+                            console.error(e);
+                          }
+                        });
+                        /*
+                                                await processTripDetection(device_id, vehicle_id, hbData, cfg);
+                                                */
                       }
 
                       // Excessive idle: ACC ON but no GPS for >= excessiveIdleMinutes
@@ -1142,12 +1189,12 @@ function startGPSServer(port) {
           }
         }
       } finally {
-        socket.resume();
+        // socket.resume();
       }
     });
 
     socket.on('error', (err) => {
-      
+
       // ETIMEDOUT / ECONNRESET are normal when a device drops off a mobile network
       if (err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET') {
         console.log(`📴 Device dropped (${err.code}): ${imei || clientIP}`);

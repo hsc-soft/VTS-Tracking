@@ -887,7 +887,7 @@ function startGPSServer(port) {
               proto = pkt[4];
               content = pkt.subarray(5, pkt.length - 6);
               crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
-              
+
             }
 
             const serial = pkt.readUInt16BE(pkt.length - 6);
@@ -902,7 +902,7 @@ function startGPSServer(port) {
             // ACK immediately
             if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
               const ack = buildGT06ACK(proto, serial);
-             // console.log("ACK =>", ack.toString("hex"));
+              // console.log("ACK =>", ack.toString("hex"));
               socket.write(ack);
             }
 
@@ -913,10 +913,14 @@ function startGPSServer(port) {
                 imei = decodeGT06IMEI(pkt.subarray(4, 12));
                 console.log(`🔑 GT06 IMEI accepted: ${imei} from ${clientIP}`);
               }
-
+            }
+            else if (proto === 0x24) {
+              pktCount.extGps = (pktCount.extGps || 0) + 1;
+              console.log("0x24 RAW:", pkt.toString("hex"));
+              // ignore
             }
             else if (proto == 0x94) {
-             // console.log("0x94 RAW:", pkt.toString("hex"));
+              // console.log("0x94 RAW:", pkt.toString("hex"));
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);

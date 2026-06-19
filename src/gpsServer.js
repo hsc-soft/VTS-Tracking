@@ -887,11 +887,12 @@ function startGPSServer(port) {
               proto = pkt[4];
               content = pkt.subarray(5, pkt.length - 6);
               crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
-              console.log({ crcCalc: crcCalc.toString(16), crcRecv: crcRecv.toString(16) });
+              
             }
 
             const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
+            console.log({ crcCalc: crcCalc.toString(16), crcRecv: crcRecv.toString(16) });
 
             console.log({ start: isShort ? "7878" : "7979", length: L, proto: "0x" + proto.toString(16), serial, raw: pkt.toString("hex") });
 

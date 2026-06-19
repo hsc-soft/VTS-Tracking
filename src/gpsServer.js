@@ -879,11 +879,12 @@ function startGPSServer(port) {
             }
 
             if (proto === 0x01) {
+/*
               console.log(
                 "LOGIN PKT",
                 pkt.toString("hex")
               );
-              clients.set(imei,{socket,lastSeen:Date.now()});
+              */
 
 
 

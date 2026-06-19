@@ -883,6 +883,7 @@ function startGPSServer(port) {
                 "LOGIN PKT",
                 pkt.toString("hex")
               );
+              clients.set(imei,{socket,lastSeen:Date.now()});
 
 
 
@@ -1143,33 +1144,18 @@ function startGPSServer(port) {
         socket.resume();
       }
     });
-    /*
-        socket.on('error', (err) => {
-          // ETIMEDOUT / ECONNRESET are normal when a device drops off a mobile network
-          if (err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET') {
-            console.log(`📴 Device dropped (${err.code}): ${imei || clientIP}`);
-          } else {
-            console.error(`❌ Socket error (${imei || clientIP}):`, err.message);
-          }
-        });
-    
-        */
 
-    socket.on("error", (err) => {
-
-      console.log({
-
-        code: err.code,
-
-        errno: err.errno,
-
-        syscall: err.syscall,
-
-        message: err.message
-
-      });
-
+    socket.on('error', (err) => {
+      console.log( "Reconnect Gap(ms):",Date.now() - (clients.get(imei)?.lastSeen || 0));
+      // ETIMEDOUT / ECONNRESET are normal when a device drops off a mobile network
+      if (err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET') {
+        console.log(`📴 Device dropped (${err.code}): ${imei || clientIP}`);
+      } else {
+        console.error(`❌ Socket error (${imei || clientIP}):`, err.message);
+      }
     });
+
+
 
     socket.on('timeout', () => {
       console.log(`⏱️  Idle timeout — closing: ${imei || clientIP}`);
@@ -1187,11 +1173,7 @@ function startGPSServer(port) {
 
     socket.on("close", (hadError) => {
 
-      console.log(
-        `❌ CLOSE IMEI:${imei}
-         hadError:${hadError}
-         read:${socket.bytesRead}
-         write:${socket.bytesWritten}`
+      console.log(`❌ CLOSE IMEI:${imei}hadError:${hadError}read:${socket.bytesRead}write:${socket.bytesWritten}`
       );
 
       if (gt06Mode) {

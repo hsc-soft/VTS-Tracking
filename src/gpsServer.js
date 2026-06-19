@@ -841,7 +841,37 @@ function startGPSServer(port) {
           const END = Buffer.from([0x0D, 0x0A]);
           while (true) {
             if (buf.length < 6) break;
-            if (buf[0] !== 0x78 || buf[1] !== 0x78) { buf = buf.subarray(1); continue; }
+
+            const isShort = buf[0] === 0x78 && buf[1] === 0x78;
+            const isLong = buf[0] === 0x79 && buf[1] === 0x79;
+
+            if (!isShort && !isLong) {
+              buf = buf.subarray(1);
+              continue;
+            }
+
+            let len;
+            let totalLen;
+
+            if (isShort) {
+              len = buf[2];
+              totalLen = len + 5;
+            } else {
+              // 79 79 packet
+              len = buf.readUInt16BE(2);
+              totalLen = len + 6;
+            }
+
+            if (buf.length < totalLen) {
+              break;
+            }
+
+            const pkt = buf.subarray(0, totalLen);
+
+            buf = buf.subarray(totalLen);
+
+
+            // if (buf[0] !== 0x78 || buf[1] !== 0x78) { buf = buf.subarray(1); continue; }
             /*
                         const endIdx = buf.indexOf(END, 4);
                         if (endIdx === -1) break;
@@ -850,29 +880,54 @@ function startGPSServer(port) {
                         buf = buf.subarray(endIdx + 2);
             
                         */
+            /*
+                        const len = buf[2];
+            
+                        const totalLen = len + 5;
+            
+                        if (buf.length < totalLen) {
+            
+                          break;
+            
+                        }
+                       
+            
+                        const pkt = buf.subarray(0, totalLen);
+                        buf = buf.subarray(totalLen);
+             */
+            if (pkt.length < 6) continue;
+            /*
+                        const L = pkt[2];
+                        const proto = pkt[3];
+                        // content = everything after proto, before last 4 bytes (serial 2 + CRC 2)
+                        const content = pkt.subarray(4, pkt.length - 6); // exclude serial+CRC+0D0A
+                        const serial = pkt.readUInt16BE(pkt.length - 6);
+                        const crcRecv = pkt.readUInt16BE(pkt.length - 4);
+                        const crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4)); // len→serial
+            
+                        */
 
-            const len = buf[2];
+            let L;
+            let proto;
+            let content;
+            let crcCalc;
 
-            const totalLen = len + 5;
-
-            if (buf.length < totalLen) {
-
-              break;
-
+            if (isShort) {
+              L = pkt[2];
+              proto = pkt[3];
+              content = pkt.subarray(4, pkt.length - 6);
+              crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
+            } else {
+              L = pkt.readUInt16BE(2);
+              proto = pkt[4];
+              content = pkt.subarray(5, pkt.length - 6);
+              crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
             }
 
-            const pkt = buf.subarray(0, totalLen);
-            buf = buf.subarray(totalLen);
-
-            if (pkt.length < 6) continue;
-
-            const L = pkt[2];
-            const proto = pkt[3];
-            // content = everything after proto, before last 4 bytes (serial 2 + CRC 2)
-            const content = pkt.subarray(4, pkt.length - 6); // exclude serial+CRC+0D0A
             const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
-            const crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4)); // len→serial
+
+            console.log({start: isShort ? "7878" : "7979", length: L, proto: "0x" + proto.toString(16), serial, raw: pkt.toString("hex")});
 
             if (crcCalc !== crcRecv) {
               console.warn(`[GT06] CRC warn | proto: 0x${proto.toString(16).padStart(2, '0')} | hex: ${pkt.toString('hex')} | calc: ${crcCalc.toString(16)} recv: ${crcRecv.toString(16)}`);

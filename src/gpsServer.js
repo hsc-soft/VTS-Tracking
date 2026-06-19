@@ -927,7 +927,7 @@ function startGPSServer(port) {
             const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
 
-            console.log({start: isShort ? "7878" : "7979", length: L, proto: "0x" + proto.toString(16), serial, raw: pkt.toString("hex")});
+            console.log({ start: isShort ? "7878" : "7979", length: L, proto: "0x" + proto.toString(16), serial, raw: pkt.toString("hex") });
 
             if (crcCalc !== crcRecv) {
               console.warn(`[GT06] CRC warn | proto: 0x${proto.toString(16).padStart(2, '0')} | hex: ${pkt.toString('hex')} | calc: ${crcCalc.toString(16)} recv: ${crcRecv.toString(16)}`);
@@ -935,6 +935,14 @@ function startGPSServer(port) {
             }
 
             // ACK immediately
+            if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x94].includes(proto)) {
+              socket.write(buildGT06ACK(proto, serial));
+              console.log(
+                `ACK proto=0x${proto.toString(16)} serial=${serial} sent=true`
+              );
+            }
+
+            /*
             if (proto === 0x01 || proto === 0x12 || proto === 0x13 || proto === 0x16 || proto === 0x22) {
 
               const ack = buildGT06ACK(proto, serial);
@@ -948,6 +956,8 @@ function startGPSServer(port) {
               // optional debug
               // console.log("ACK =>", ack.toString("hex"));
             }
+
+            */
 
             if (proto === 0x01) {
               /*
@@ -964,6 +974,12 @@ function startGPSServer(port) {
                 imei = decodeGT06IMEI(pkt.subarray(4, 12));
                 console.log(`🔑 GT06 IMEI accepted: ${imei} from ${clientIP}`);
               }
+
+            }
+            else if (proto == 0x94) {
+              socket.write(buildGT06ACK(proto, serial));
+              console.log("ACK 94 SENT");
+              continue;
 
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;

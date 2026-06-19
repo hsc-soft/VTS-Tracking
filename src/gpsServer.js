@@ -906,18 +906,21 @@ function startGPSServer(port) {
             } else if (proto === 0x13) {
               pktCount.hb++;
               const ack = buildGT06ACK(0x13, serial);
-
+/*
               console.log(
                 "HB ACK =>",
                 ack.toString("hex")
               );
-
+              */
+/*
               socket.write(ack);
 
               console.log(
                 "HB PKT",
                 pkt.toString("hex")
               );
+
+              */
 
               // socket.write(buildGT06ACK(0x13, serial));
               const termInfo = content[0] ?? 0;

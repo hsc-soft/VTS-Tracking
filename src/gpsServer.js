@@ -892,10 +892,7 @@ function startGPSServer(port) {
 
             const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
-            console.log({ crcCalc: crcCalc.toString(16), crcRecv: crcRecv.toString(16) });
-
-            console.log({ start: isShort ? "7878" : "7979", length: L, proto: "0x" + proto.toString(16), serial, raw: pkt.toString("hex") });
-
+                       
             if (crcCalc !== crcRecv) {
               console.warn(`[GT06] CRC warn | proto: 0x${proto.toString(16).padStart(2, '0')} | hex: ${pkt.toString('hex')} | calc: ${crcCalc.toString(16)} recv: ${crcRecv.toString(16)}`);
               console.warn("CRC FAIL", pkt.toString("hex"), crcCalc.toString(16), crcRecv.toString(16));

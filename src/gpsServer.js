@@ -185,6 +185,33 @@ function decodeGT06IMEI(buf) {
   return s.replace(/[fF]$/, '').slice(1, 16);
 }
 
+function buildGT06ACK79(proto, serial) {
+
+  const pkt = Buffer.allocUnsafe(11);
+
+  pkt[0] = 0x79;
+  pkt[1] = 0x79;
+
+  // length = 5
+  pkt[2] = 0x00;
+  pkt[3] = 0x05;
+
+  pkt[4] = proto;
+
+  pkt[5] = (serial >> 8) & 0xFF;
+  pkt[6] = serial & 0xFF;
+
+  const crc = crc16GT06(pkt.subarray(2, 7));
+
+  pkt[7] = (crc >> 8) & 0xFF;
+  pkt[8] = crc & 0xFF;
+
+  pkt[9] = 0x0D;
+  pkt[10] = 0x0A;
+
+  return pkt;
+}
+
 function buildGT06ACK(proto, serial) {
   // 78 78 05 [proto] [serialH] [serialL] [crcH] [crcL] 0D 0A
   const pkt = Buffer.allocUnsafe(10);
@@ -936,10 +963,23 @@ function startGPSServer(port) {
 
             // ACK immediately
             if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x94].includes(proto)) {
+              let ack;
+
+              if (isShort) {
+                ack = buildGT06ACK(proto, serial);
+              } else {
+                ack = buildGT06ACK79(proto, serial);
+              }
+
+              console.log("ACK =>", ack.toString("hex"));
+
+              socket.write(ack);
+              /*
               socket.write(buildGT06ACK(proto, serial));
               console.log(
                 `ACK proto=0x${proto.toString(16)} serial=${serial} sent=true`
               );
+              */
             }
 
             /*

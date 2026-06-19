@@ -870,42 +870,7 @@ function startGPSServer(port) {
 
             buf = buf.subarray(totalLen);
 
-
-            // if (buf[0] !== 0x78 || buf[1] !== 0x78) { buf = buf.subarray(1); continue; }
-            /*
-                        const endIdx = buf.indexOf(END, 4);
-                        if (endIdx === -1) break;
-            
-                        const pkt = buf.subarray(0, endIdx + 2);
-                        buf = buf.subarray(endIdx + 2);
-            
-                        */
-            /*
-                        const len = buf[2];
-            
-                        const totalLen = len + 5;
-            
-                        if (buf.length < totalLen) {
-            
-                          break;
-            
-                        }
-                       
-            
-                        const pkt = buf.subarray(0, totalLen);
-                        buf = buf.subarray(totalLen);
-             */
             if (pkt.length < 6) continue;
-            /*
-                        const L = pkt[2];
-                        const proto = pkt[3];
-                        // content = everything after proto, before last 4 bytes (serial 2 + CRC 2)
-                        const content = pkt.subarray(4, pkt.length - 6); // exclude serial+CRC+0D0A
-                        const serial = pkt.readUInt16BE(pkt.length - 6);
-                        const crcRecv = pkt.readUInt16BE(pkt.length - 4);
-                        const crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4)); // len→serial
-            
-                        */
 
             let L;
             let proto;
@@ -922,6 +887,7 @@ function startGPSServer(port) {
               proto = pkt[4];
               content = pkt.subarray(5, pkt.length - 6);
               crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
+              console.log({ crcCalc: crcCalc.toString(16), crcRecv: crcRecv.toString(16) });
             }
 
             const serial = pkt.readUInt16BE(pkt.length - 6);
@@ -931,6 +897,7 @@ function startGPSServer(port) {
 
             if (crcCalc !== crcRecv) {
               console.warn(`[GT06] CRC warn | proto: 0x${proto.toString(16).padStart(2, '0')} | hex: ${pkt.toString('hex')} | calc: ${crcCalc.toString(16)} recv: ${crcRecv.toString(16)}`);
+              console.warn("CRC FAIL", pkt.toString("hex"), crcCalc.toString(16), crcRecv.toString(16));
               continue;
             }
 
@@ -941,33 +908,8 @@ function startGPSServer(port) {
               socket.write(ack);
             }
 
-            /*
-            if (proto === 0x01 || proto === 0x12 || proto === 0x13 || proto === 0x16 || proto === 0x22) {
-
-              const ack = buildGT06ACK(proto, serial);
-
-              const sent = socket.write(ack);
-
-              console.log(
-                `ACK proto=0x${proto.toString(16)} serial=${serial} sent=${sent}`
-              );
-
-              // optional debug
-              // console.log("ACK =>", ack.toString("hex"));
-            }
-
-            */
 
             if (proto === 0x01) {
-              /*
-                            console.log(
-                              "LOGIN PKT",
-                              pkt.toString("hex")
-                            );
-                            */
-
-
-
               pktCount.login++;
               if (pkt.length >= 12) {
                 imei = decodeGT06IMEI(pkt.subarray(4, 12));
@@ -976,17 +918,14 @@ function startGPSServer(port) {
 
             }
             else if (proto == 0x94) {
-              console.log("0x94 received, no ACK sent");
-              continue;
+              console.log("0x94 received, ignored");
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);
               if (data) {
 
                 setImmediate(async () => {
-
                   try {
-
                     const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
                     if (pktCount.gps === 1) {
                       const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
@@ -994,24 +933,15 @@ function startGPSServer(port) {
                       console.log(`🚗 Movement upload — IMEI: ${imei} | GPS time: ${gpsTime} | Upload delay: ${delayMin} min`);
                     }
                     console.log(`📦 Data received — IMEI: ${imei} | Records: 1 | Time: ${recvTime}`);
-                    await savePing(data);
+                    //await savePing(data);
+                    savePing(data).catch(err => {
+                      console.error("savePing Error:", err);
+                    });
 
                   } catch (e) {
-
                     console.error(e);
-
                   }
                 });
-                /*
-                                const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                                if (pktCount.gps === 1) {
-                                  const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                                  const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
-                                  console.log(`🚗 Movement upload — IMEI: ${imei} | GPS time: ${gpsTime} | Upload delay: ${delayMin} min`);
-                                }
-                                console.log(`📦 Data received — IMEI: ${imei} | Records: 1 | Time: ${recvTime}`);
-                                await savePing(data);
-                */
 
               } else {
                 console.warn(`[GT06] GPS parse failed — IMEI: ${imei} | content len: ${content.length} | hex: ${content.toString('hex')}`);
@@ -1029,120 +959,130 @@ function startGPSServer(port) {
               console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
 
               // GT06N doesn't send GPS when stationary — use heartbeat for trip end + idle detection
-              if (imei) {
+              setImmediate(async () => {
                 try {
-                  await redis.set(`device:lastping:${imei}`, Date.now().toString(), { ex: 7200 });
-                  const rawLastPos = await redis.get(`device:lastpos:${imei}`);
-                  if (!rawLastPos) {
-                    console.log(`[HB] No lastpos for ${imei} — skipping live update`);
-                  }
-                  if (rawLastPos) {
-                    const lastPos = typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos;
+                  if (imei) {
+                    try {
+                      await redis.set(`device:lastping:${imei}`, Date.now().toString(), { ex: 7200 });
+                      const rawLastPos = await redis.get(`device:lastpos:${imei}`);
+                      if (!rawLastPos) {
+                        console.log(`[HB] No lastpos for ${imei} — skipping live update`);
+                      }
+                      if (rawLastPos) {
+                        const lastPos = typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos;
 
-                    const devRes = await db.query(
-                      `SELECT d.id AS device_id, v.id AS vehicle_id
+                        const devRes = await db.query(
+                          `SELECT d.id AS device_id, v.id AS vehicle_id
                        FROM devices d
                        LEFT JOIN vehicles v ON v.device_id = d.id
                        WHERE d.imei = $1 AND d.is_active = true`,
-                      [imei]
-                    );
+                          [imei]
+                        );
 
-                    if (devRes.rows.length > 0) {
-                      const { device_id, vehicle_id } = devRes.rows[0];
+                        if (devRes.rows.length > 0) {
+                          const { device_id, vehicle_id } = devRes.rows[0];
 
-                      // Ignition state change via heartbeat ACC bit
-                      const prevAccRaw = await redis.get(`device:acc:${imei}`);
-                      const prevAcc = prevAccRaw === 'on';
-                      if (acc !== prevAcc) {
-                        await redis.set(`device:acc:${imei}`, acc ? 'on' : 'off', { ex: 86400 });
-                        await savePing({
-                          imei,
-                          ts: new Date().toISOString(),
-                          latitude: lastPos.lat,
-                          longitude: lastPos.lng,
-                          speed_kmh: 0,
-                          heading: 0,
-                          ignition: acc,
-                          battery_v: null,
-                          satellites: null,
-                          altitude: 0,
-                          protocol: 'gt06_heartbeat',
-                          io: {}
-                        });
-                        if (vehicle_id) {
-                          await db.query(
-                            `INSERT INTO alerts (vehicle_id, alert_type, severity, value, latitude, longitude)
+                          // Ignition state change via heartbeat ACC bit
+                          const prevAccRaw = await redis.get(`device:acc:${imei}`);
+                          const prevAcc = prevAccRaw === 'on';
+                          if (acc !== prevAcc) {
+                            await redis.set(`device:acc:${imei}`, acc ? 'on' : 'off', { ex: 86400 });
+                            await savePing({
+                              imei,
+                              ts: new Date().toISOString(),
+                              latitude: lastPos.lat,
+                              longitude: lastPos.lng,
+                              speed_kmh: 0,
+                              heading: 0,
+                              ignition: acc,
+                              battery_v: null,
+                              satellites: null,
+                              altitude: 0,
+                              protocol: 'gt06_heartbeat',
+                              io: {}
+                            });
+                            if (vehicle_id) {
+                              await db.query(
+                                `INSERT INTO alerts (vehicle_id, alert_type, severity, value, latitude, longitude)
                              VALUES ($1,$2,$3,$4,$5,$6)`,
-                            [vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
-                              acc ? 1 : 0, lastPos.lat, lastPos.lng]
-                          );
-                          console.log(`🔑 Ignition ${acc ? 'ON' : 'OFF'} — IMEI: ${imei}`);
+                                [vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
+                                  acc ? 1 : 0, lastPos.lat, lastPos.lng]
+                              );
+                              console.log(`🔑 Ignition ${acc ? 'ON' : 'OFF'} — IMEI: ${imei}`);
+                            }
+                          }
+
+                          const cfg = resolveConfig({});
+                          const now = new Date().toISOString();
+
+                          // Only affect an existing active trip — never start one from heartbeat
+                          const tripRaw = await redis.get(`trip:active:${device_id}`);
+                          if (tripRaw) {
+                            const hbData = {
+                              imei, ts: now,
+                              latitude: lastPos.lat, longitude: lastPos.lng,
+                              speed_kmh: 0, heading: 0,
+                              ignition: acc,
+                              battery_v: null, satellites: null,
+                              protocol: 'gt06_heartbeat', io: {}
+                            };
+                            setImmediate(async () => {
+                              try {
+                                await processTripDetection(device_id, vehicle_id, hbData, cfg);
+                              } catch (e) {
+                                console.error(e);
+                              }
+                            });
+                            /*
+                                                    await processTripDetection(device_id, vehicle_id, hbData, cfg);
+                                                    */
+                          }
+
+                          // Excessive idle: ACC ON but no GPS for >= excessiveIdleMinutes
+                          if (acc && vehicle_id) {
+                            const gapMin = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
+                            if (gapMin >= cfg.excessiveIdleMinutes) {
+                              const alertedKey = `idle:alerted:${vehicle_id}`;
+                              const alreadyAlerted = await redis.get(alertedKey);
+                              if (!alreadyAlerted) {
+                                await triggerAlert(vehicle_id, 'excessive_idle', 'warning',
+                                  parseFloat(gapMin.toFixed(1)), lastPos.lat, lastPos.lng);
+                                await redis.set(alertedKey, '1', { ex: 3600 });
+                                console.log(`⏸️  Excessive idle (GT06) — Vehicle: ${vehicle_id} | ${gapMin.toFixed(1)} min at ${lastPos.lat.toFixed(5)},${lastPos.lng.toFixed(5)}`);
+                              }
+                            }
+                          }
+
+                          // Update live map position from heartbeat:
+                          // - ACC OFF → always update (vehicle PARKED)
+                          // - ACC ON  → update only if GPS is stale >2 min (vehicle IDLE, not moving)
+                          const gapFromLastGps = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
+                          if (!acc || gapFromLastGps > 2) {
+                            console.log(`[HB] Live update — IMEI: ${imei} | ignition:${acc} | gap:${gapFromLastGps.toFixed(1)}min`);
+                            await redis.set(`device:${imei}`, JSON.stringify({
+                              lat: lastPos.lat,
+                              lng: lastPos.lng,
+                              speed: 0,
+                              heading: 0,
+                              ignition: acc,
+                              battery: null,
+                              ts: new Date().toISOString()
+                            }), { ex: 300 });
+                          }
                         }
                       }
-
-                      const cfg = resolveConfig({});
-                      const now = new Date().toISOString();
-
-                      // Only affect an existing active trip — never start one from heartbeat
-                      const tripRaw = await redis.get(`trip:active:${device_id}`);
-                      if (tripRaw) {
-                        const hbData = {
-                          imei, ts: now,
-                          latitude: lastPos.lat, longitude: lastPos.lng,
-                          speed_kmh: 0, heading: 0,
-                          ignition: acc,
-                          battery_v: null, satellites: null,
-                          protocol: 'gt06_heartbeat', io: {}
-                        };
-                        setImmediate(async () => {
-                          try {
-                            await processTripDetection(device_id, vehicle_id, hbData, cfg);
-                          } catch (e) {
-                            console.error(e);
-                          }
-                        });
-                        /*
-                                                await processTripDetection(device_id, vehicle_id, hbData, cfg);
-                                                */
-                      }
-
-                      // Excessive idle: ACC ON but no GPS for >= excessiveIdleMinutes
-                      if (acc && vehicle_id) {
-                        const gapMin = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
-                        if (gapMin >= cfg.excessiveIdleMinutes) {
-                          const alertedKey = `idle:alerted:${vehicle_id}`;
-                          const alreadyAlerted = await redis.get(alertedKey);
-                          if (!alreadyAlerted) {
-                            await triggerAlert(vehicle_id, 'excessive_idle', 'warning',
-                              parseFloat(gapMin.toFixed(1)), lastPos.lat, lastPos.lng);
-                            await redis.set(alertedKey, '1', { ex: 3600 });
-                            console.log(`⏸️  Excessive idle (GT06) — Vehicle: ${vehicle_id} | ${gapMin.toFixed(1)} min at ${lastPos.lat.toFixed(5)},${lastPos.lng.toFixed(5)}`);
-                          }
-                        }
-                      }
-
-                      // Update live map position from heartbeat:
-                      // - ACC OFF → always update (vehicle PARKED)
-                      // - ACC ON  → update only if GPS is stale >2 min (vehicle IDLE, not moving)
-                      const gapFromLastGps = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
-                      if (!acc || gapFromLastGps > 2) {
-                        console.log(`[HB] Live update — IMEI: ${imei} | ignition:${acc} | gap:${gapFromLastGps.toFixed(1)}min`);
-                        await redis.set(`device:${imei}`, JSON.stringify({
-                          lat: lastPos.lat,
-                          lng: lastPos.lng,
-                          speed: 0,
-                          heading: 0,
-                          ignition: acc,
-                          battery: null,
-                          ts: new Date().toISOString()
-                        }), { ex: 300 });
-                      }
+                    } catch (hbErr) {
+                      console.warn(`⚠️  Heartbeat trip/idle detection failed for ${imei}:`, hbErr.message);
                     }
                   }
-                } catch (hbErr) {
-                  console.warn(`⚠️  Heartbeat trip/idle detection failed for ${imei}:`, hbErr.message);
+
+                } catch (err) {
+
+                  console.error(err);
+
                 }
-              }
+
+              });
             } else if (proto === 0x16) {
               pktCount.alarm++;
               const alarmType = content[26] ?? 0xFF;
@@ -1290,16 +1230,22 @@ function startGPSServer(port) {
 
     socket.on("close", (hadError) => {
 
-      console.log(`❌ CLOSE IMEI:${imei}hadError:${hadError}read:${socket.bytesRead}write:${socket.bytesWritten}`
-      );
+      // console.log(`❌ CLOSE IMEI:${imei}hadError:${hadError}read:${socket.bytesRead}write:${socket.bytesWritten}`
+      //  );
 
       if (gt06Mode) {
 
+        console.log("========== SOCKET CLOSED ==========");
+        console.log({
+          imei,
+          hadError,
+          bytesRead: socket.bytesRead,
+          bytesWritten: socket.bytesWritten,
+          destroyed: socket.destroyed,
+          remoteAddress: socket.remoteAddress
+        });
         console.log(
-          `Session packets Login:${pktCount.login}
-             GPS:${pktCount.gps}
-             HB:${pktCount.hb}
-             Alarm:${pktCount.alarm}`
+          `Login:${pktCount.login} GPS:${pktCount.gps} HB:${pktCount.hb} Alarm:${pktCount.alarm}`
         );
 
       } else {

@@ -892,7 +892,7 @@ function startGPSServer(port) {
 
             const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
-                       
+
             if (crcCalc !== crcRecv) {
               console.warn(`[GT06] CRC warn | proto: 0x${proto.toString(16).padStart(2, '0')} | hex: ${pkt.toString('hex')} | calc: ${crcCalc.toString(16)} recv: ${crcRecv.toString(16)}`);
               console.warn("CRC FAIL", pkt.toString("hex"), crcCalc.toString(16), crcRecv.toString(16));
@@ -902,7 +902,7 @@ function startGPSServer(port) {
             // ACK immediately
             if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
               const ack = buildGT06ACK(proto, serial);
-              console.log("ACK =>", ack.toString("hex"));
+             // console.log("ACK =>", ack.toString("hex"));
               socket.write(ack);
             }
 
@@ -916,7 +916,7 @@ function startGPSServer(port) {
 
             }
             else if (proto == 0x94) {
-              console.log("0x94 RAW:", pkt.toString("hex"));
+             // console.log("0x94 RAW:", pkt.toString("hex"));
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);

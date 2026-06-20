@@ -1232,11 +1232,11 @@ function startGPSServer(port) {
     const connectedAt = Date.now();
     socket.on("close", (hadError) => {
 
-      // console.log(`❌ CLOSE IMEI:${imei}hadError:${hadError}read:${socket.bytesRead}write:${socket.bytesWritten}`
-      //  );
-
+      console.log(`❌ CLOSE IMEI:${imei}hadError:${hadError}read:${socket.bytesRead}write:${socket.bytesWritten}`
+      );
+      console.log("Connected for", (Date.now() - connectedAt) / 1000, "seconds");
       if (gt06Mode) {
-        console.log("Connected for", (Date.now() - connectedAt) / 1000, "seconds");
+
         console.log("========== SOCKET CLOSED ==========");
         console.log({
           imei,

@@ -713,6 +713,7 @@ async function savePing(data) {
     }
 
     await redis.set(`device:lastping:${data.imei}`, Date.now().toString(), { ex: 7200 });
+    await redis.set(`device:acc:${data.imei}`, data.ignition ? 'on' : 'off', { ex: 86400 });
 
     // GPS jump detection: implied speed > 200 km/h between two valid pings = spoof or jump
     if (existingPos && vehicle_id) {

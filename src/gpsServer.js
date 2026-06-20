@@ -966,6 +966,96 @@ function startGPSServer(port) {
               const hbTime    = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
               console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
 
+              setImmediate(async () => {
+                try {
+                  if (!imei) return;
+
+                  await redis.set(`device:lastping:${imei}`, Date.now().toString(), { ex: 7200 });
+
+                  const rawLastPos = await redis.get(`device:lastpos:${imei}`);
+                  if (!rawLastPos) {
+                    console.log(`[HB] No lastpos for ${imei} — skipping`);
+                    return;
+                  }
+                  const lastPos = JSON.parse(rawLastPos);
+
+                  const devRes = await db.query(
+                    `SELECT d.id AS device_id, v.id AS vehicle_id
+                     FROM devices d LEFT JOIN vehicles v ON v.device_id = d.id
+                     WHERE d.imei = $1 AND d.is_active = true`, [imei]
+                  );
+                  if (!devRes.rows.length) return;
+                  const { device_id, vehicle_id } = devRes.rows[0];
+
+                  // ── Ignition state change ──────────────────
+                  const prevAccRaw = await redis.get(`device:acc:${imei}`);
+                  const prevAcc = prevAccRaw === 'on';
+                  if (acc !== prevAcc) {
+                    await redis.set(`device:acc:${imei}`, acc ? 'on' : 'off', { ex: 86400 });
+                    await savePing({
+                      imei, ts: new Date().toISOString(),
+                      latitude: lastPos.lat, longitude: lastPos.lng,
+                      speed_kmh: 0, heading: 0, ignition: acc,
+                      battery_v: null, satellites: null, altitude: 0,
+                      protocol: 'gt06_heartbeat', io: {}
+                    });
+                    if (vehicle_id) {
+                      await db.query(
+                        `INSERT INTO alerts (vehicle_id, alert_type, severity, value, latitude, longitude)
+                         VALUES ($1,$2,$3,$4,$5,$6)`,
+                        [vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
+                          acc ? 1 : 0, lastPos.lat, lastPos.lng]
+                      );
+                      console.log(`🔑 Ignition ${acc ? 'ON' : 'OFF'} — IMEI: ${imei}`);
+                    }
+                  }
+
+                  // ── Trip detection (existing trip only) ────
+                  const cfg = resolveConfig({});
+                  const tripRaw = await redis.get(`trip:active:${device_id}`);
+                  if (tripRaw) {
+                    const hbData = {
+                      imei, ts: new Date().toISOString(),
+                      latitude: lastPos.lat, longitude: lastPos.lng,
+                      speed_kmh: 0, heading: 0, ignition: acc,
+                      battery_v: null, satellites: null,
+                      protocol: 'gt06_heartbeat', io: {}
+                    };
+                    setImmediate(async () => {
+                      try { await processTripDetection(device_id, vehicle_id, hbData, cfg); }
+                      catch (e) { console.error('[HB] Trip detection error:', e.message); }
+                    });
+                  }
+
+                  // ── Excessive idle ─────────────────────────
+                  if (acc && vehicle_id) {
+                    const gapMin = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
+                    if (gapMin >= cfg.excessiveIdleMinutes) {
+                      const alertedKey = `idle:alerted:${vehicle_id}`;
+                      if (!await redis.get(alertedKey)) {
+                        await triggerAlert(vehicle_id, 'excessive_idle', 'warning',
+                          parseFloat(gapMin.toFixed(1)), lastPos.lat, lastPos.lng);
+                        await redis.set(alertedKey, '1', { ex: 3600 });
+                        console.log(`⏸️  Excessive idle — Vehicle: ${vehicle_id} | ${gapMin.toFixed(1)} min`);
+                      }
+                    }
+                  }
+
+                  // ── Live position update ───────────────────
+                  const gapFromLastGps = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
+                  if (!acc || gapFromLastGps > 2) {
+                    await redis.set(`device:${imei}`, JSON.stringify({
+                      lat: lastPos.lat, lng: lastPos.lng,
+                      speed: 0, heading: 0, ignition: acc,
+                      battery: null, ts: new Date().toISOString()
+                    }), { ex: 300 });
+                  }
+
+                } catch (err) {
+                  console.error(`[HB] Error — IMEI: ${imei}:`, err.message);
+                }
+              });
+
             // ── 6. 0x16 Alarm ─────────────────────────────
             } else if (proto === 0x16) {
               pktCount.alarm++;

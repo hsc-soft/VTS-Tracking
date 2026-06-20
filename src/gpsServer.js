@@ -187,29 +187,29 @@ function decodeGT06IMEI(buf) {
 
 function buildGT06ACK79(proto, serial) {
 
-    const pkt = Buffer.allocUnsafe(11);
+  const pkt = Buffer.allocUnsafe(11);
 
-    pkt[0] = 0x79;
-    pkt[1] = 0x79;
+  pkt[0] = 0x79;
+  pkt[1] = 0x79;
 
-    // length = 5
-    pkt[2] = 0x00;
-    pkt[3] = 0x05;
+  // length = 5
+  pkt[2] = 0x00;
+  pkt[3] = 0x05;
 
-    pkt[4] = proto;
+  pkt[4] = proto;
 
-    pkt[5] = (serial >> 8) & 0xFF;
-    pkt[6] = serial & 0xFF;
+  pkt[5] = (serial >> 8) & 0xFF;
+  pkt[6] = serial & 0xFF;
 
-    const crc = crc16GT06(pkt.subarray(2, 7));
+  const crc = crc16GT06(pkt.subarray(2, 7));
 
-    pkt[7] = (crc >> 8) & 0xFF;
-    pkt[8] = crc & 0xFF;
+  pkt[7] = (crc >> 8) & 0xFF;
+  pkt[8] = crc & 0xFF;
 
-    pkt[9] = 0x0D;
-    pkt[10] = 0x0A;
+  pkt[9] = 0x0D;
+  pkt[10] = 0x0A;
 
-    return pkt;
+  return pkt;
 }
 
 function buildGT06ACK(proto, serial) {
@@ -966,6 +966,12 @@ function startGPSServer(port) {
               // ignore
             }
             else if (proto === 0x94) {
+              console.log({
+                infoType: pkt[5],
+                len: pkt.length,
+                serial,
+                raw: pkt.toString("hex")
+              });
               console.log(`[GT06] 0x94 ICCID — IMEI: ${imei} | ACK sent`);
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;

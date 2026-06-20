@@ -918,40 +918,46 @@ function startGPSServer(port) {
               clients.set(imei, { socket, lastSeen: Date.now() });
               console.log(`🔑 Login — IMEI: ${imei} | IP: ${clientIP}`);
 
-            // ── 4. 0x12 Real-time GPS ─────────────────────
-            } else if (proto === 0x12) {
+            // ── 4. 0x12 / 0x22 GPS ────────────────────────
+            } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
-              const data = parseGT06GPS(content, imei);
-              if (data) {
-                const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                if (pktCount.gps === 1) {
+
+              // 0x22 ya 0x12 multi-record check: content[0] = count, baaki N×18 bytes
+              const maybeCount = content[0];
+              const isMultiRecord = proto === 0x22 ||
+                (maybeCount >= 1 && maybeCount <= 20 && content.length === 1 + maybeCount * 18);
+
+              if (isMultiRecord) {
+                const recordCount = maybeCount;
+                console.log(`📦 Buffered GPS — IMEI: ${imei} | Records: ${recordCount}`);
+                for (let i = 0; i < recordCount; i++) {
+                  const recordStart = 1 + i * 18;
+                  if (recordStart + 18 > content.length) break;
+                  const record = content.subarray(recordStart, recordStart + 18);
+                  const data = parseGT06GPS(record, imei);
+                  if (data) {
+                    data.protocol = 'gt06_buffered';
+                    const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                    console.log(`  ↳ Record ${i + 1}/${recordCount} | Time: ${gpsTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
+                    savePing(data).catch(err => console.error('savePing Error:', err));
+                  } else {
+                    console.warn(`[GT06] Buffered record ${i + 1} parse fail — hex: ${record.toString('hex')}`);
+                  }
+                }
+              } else {
+                // Single real-time record
+                const data = parseGT06GPS(content, imei);
+                if (data) {
+                  const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
                   const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
                   const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
-                  console.log(`🚗 Movement — IMEI: ${imei} | GPS time: ${gpsTime} | Delay: ${delayMin} min`);
-                }
-                console.log(`📍 GPS record — IMEI: ${imei} | Time: ${recvTime}`);
-                savePing(data).catch(err => console.error('savePing Error:', err));
-              } else {
-                console.warn(`[GT06] GPS parse fail — IMEI: ${imei} | hex: ${content.toString('hex')}`);
-              }
-
-            // ── 4b. 0x22 Buffered GPS ──────────────────────
-            } else if (proto === 0x22) {
-              pktCount.gps++;
-              const recordCount = content[0];
-              console.log(`📦 Buffered GPS — IMEI: ${imei} | Records: ${recordCount}`);
-              for (let i = 0; i < recordCount; i++) {
-                const recordStart = 1 + i * 18;
-                if (recordStart + 18 > content.length) break;
-                const record = content.subarray(recordStart, recordStart + 18);
-                const data = parseGT06GPS(record, imei);
-                if (data) {
-                  data.protocol = 'gt06_buffered';
-                  const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                  console.log(`  ↳ Record ${i + 1}/${recordCount} | Time: ${gpsTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
+                  if (pktCount.gps === 1) {
+                    console.log(`🚗 Movement — IMEI: ${imei} | GPS time: ${gpsTime} | Delay: ${delayMin} min`);
+                  }
+                  console.log(`📍 GPS record — IMEI: ${imei} | Time: ${recvTime}`);
                   savePing(data).catch(err => console.error('savePing Error:', err));
                 } else {
-                  console.warn(`[GT06] Buffered record ${i + 1} parse fail — hex: ${record.toString('hex')}`);
+                  console.warn(`[GT06] GPS parse fail — IMEI: ${imei} | hex: ${content.toString('hex')}`);
                 }
               }
 

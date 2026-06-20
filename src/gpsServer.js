@@ -945,7 +945,62 @@ function startGPSServer(port) {
               const hbTime    = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
               console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
 
-            // ── Proto handlers (Steps 6-8 aayenge) ────────
+            // ── 6. 0x16 Alarm ─────────────────────────────
+            } else if (proto === 0x16) {
+              pktCount.alarm++;
+              const alarmType = content[26] ?? 0xFF;
+              const ALARM_NAMES = {
+                0x01: 'SOS',           0x02: 'Power cut',      0x03: 'Vibration',
+                0x04: 'Geo enter',     0x05: 'Geo exit',       0x06: 'Overspeed',
+                0x09: 'Displacement',  0x0E: 'Low battery',
+                0xFE: 'ACC OFF',       0xFF: 'ACC ON'
+              };
+              const alarmName = ALARM_NAMES[alarmType] || `0x${alarmType.toString(16).padStart(2,'0')}`;
+              const data = content.length >= 26 ? parseGT06GPS(content.subarray(0, 26), imei) : null;
+              if (data) {
+                if (alarmType === 0xFF) data.ignition = true;
+                else if (alarmType === 0xFE) data.ignition = false;
+                const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                console.log(`🚨 Alarm [${alarmName}] — IMEI: ${imei} | Ignition: ${data.ignition ? 'ON' : 'OFF'} | Time: ${recvTime}`);
+                savePing(data).catch(err => console.error('savePing Error:', err));
+                const ALARM_ALERT_MAP = {
+                  0x01: { type: 'sos',          severity: 'critical' },
+                  0x02: { type: 'power_cut',    severity: 'critical' },
+                  0x03: { type: 'vibration',    severity: 'warning'  },
+                  0xFE: { type: 'ignition_off', severity: 'info'     },
+                  0xFF: { type: 'ignition_on',  severity: 'info'     },
+                };
+                const alertDef = ALARM_ALERT_MAP[alarmType];
+                if (alertDef && imei) {
+                  setImmediate(async () => {
+                    try {
+                      const devRes = await db.query(
+                        `SELECT v.id AS vehicle_id FROM devices d
+                         LEFT JOIN vehicles v ON v.device_id = d.id
+                         WHERE d.imei = $1 AND d.is_active = true`, [imei]
+                      );
+                      if (devRes.rows.length && devRes.rows[0].vehicle_id) {
+                        await triggerAlert(devRes.rows[0].vehicle_id, alertDef.type,
+                          alertDef.severity, alarmType, data.latitude, data.longitude);
+                      }
+                    } catch (e) {
+                      console.warn(`[GT06] Alarm alert failed — IMEI: ${imei}:`, e.message);
+                    }
+                  });
+                }
+              } else {
+                console.warn(`[GT06] Alarm parse fail — IMEI: ${imei} | content len: ${content.length}`);
+              }
+
+            // ── 7. 0x94 ICCID ─────────────────────────────
+            } else if (proto === 0x94) {
+              const iccid = content.toString('hex');
+              console.log(`📟 ICCID — IMEI: ${imei} | ${iccid}`);
+
+            // ── 8. Unknown proto ───────────────────────────
+            } else {
+              pktCount.other++;
+              console.log(`[GT06] Unknown proto:0x${proto.toString(16).padStart(2,'0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
             }
 
           }

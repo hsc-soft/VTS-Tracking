@@ -977,7 +977,7 @@ function startGPSServer(port) {
                     console.log(`[HB] No lastpos for ${imei} — skipping`);
                     return;
                   }
-                  const lastPos = JSON.parse(rawLastPos);
+                  const lastPos = typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos;
 
                   const devRes = await db.query(
                     `SELECT d.id AS device_id, v.id AS vehicle_id

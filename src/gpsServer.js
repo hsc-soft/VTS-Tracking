@@ -903,12 +903,25 @@ function startGPSServer(port) {
             if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
               const ack = buildGT06ACK(proto, serial);
               // console.log("ACK =>", ack.toString("hex"));
-              socket.write(ack);
+              // socket.write(ack);
+              socket.write(ack, (err) => {
+                if (err) {
+                  console.error("ACK write failed:", err);
+                } else {
+                  console.log("ACK sent:", ack.toString("hex"));
+                }
+              });
             }
 
 
             if (proto === 0x01) {
               pktCount.login++;
+              imei = decodeGT06IMEI(pkt.subarray(4, 12));
+
+              clients.set(imei, {
+                socket,
+                lastSeen: Date.now()
+              });
               if (pkt.length >= 12) {
                 imei = decodeGT06IMEI(pkt.subarray(4, 12));
                 console.log(`🔑 GT06 IMEI accepted: ${imei} from ${clientIP}`);
@@ -920,13 +933,20 @@ function startGPSServer(port) {
               // ignore
             }
             else if (proto == 0x94) {
+              /*
+              console.log("========== 0x94 ==========");
+
               console.log({
                 infoType: pkt[5],
                 len: pkt.length,
                 serial,
+                crcRecv: crcRecv.toString(16),
+                crcCalc: crcCalc.toString(16),
+                payload: content.toString("hex"),
                 raw: pkt.toString("hex")
               });
               // console.log("0x94 RAW:", pkt.toString("hex"));
+              */
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);
@@ -1238,9 +1258,18 @@ function startGPSServer(port) {
     const connectedAt = Date.now();
     socket.on("close", (hadError) => {
 
-      console.log(`❌ CLOSE IMEI:${imei}hadError:${hadError}read:${socket.bytesRead}write:${socket.bytesWritten}`
-      );
+      //  console.log(`❌ CLOSE IMEI:${imei}hadError:${hadError}read:${socket.bytesRead}write:${socket.bytesWritten}`
+      //  );
       console.log("Connected for", (Date.now() - connectedAt) / 1000, "seconds");
+      if (imei) {
+
+        const c = clients.get(imei);
+
+        if (c && c.socket === socket) {
+          clients.delete(imei);
+        }
+
+      }
       if (gt06Mode) {
 
         console.log("========== SOCKET CLOSED ==========");
@@ -1250,7 +1279,9 @@ function startGPSServer(port) {
           bytesRead: socket.bytesRead,
           bytesWritten: socket.bytesWritten,
           destroyed: socket.destroyed,
-          remoteAddress: socket.remoteAddress
+          readyState: socket.readyState,
+          remoteAddress: socket.remoteAddress,
+          remotePort: socket.remotePort
         });
         console.log(
           `Login:${pktCount.login} GPS:${pktCount.gps} HB:${pktCount.hb} Alarm:${pktCount.alarm}`
@@ -1262,7 +1293,10 @@ function startGPSServer(port) {
 
     });
 
-    socket.setKeepAlive(true, 30000);
+    socket.setKeepAlive(true, 10000);
+    socket.setNoDelay(true);
+
+    // socket.setKeepAlive(true, 30000);
     // socket.setTimeout(120_000); // destroy after 2 min of no data
   });
 

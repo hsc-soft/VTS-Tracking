@@ -936,7 +936,7 @@ function startGPSServer(port) {
               console.log("0x24 RAW:", pkt.toString("hex"));
               // ignore
             }
-            else if (proto == 0x94) {
+            else if (proto === 0x94) {
               console.log("0x94 TEST");
               socket.write(Buffer.from(pkt), (err) => {
                 console.log("Echo write:", err || "OK");

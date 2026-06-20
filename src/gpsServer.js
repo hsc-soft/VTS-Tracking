@@ -979,7 +979,7 @@ function startGPSServer(port) {
               const signal = content[2] ?? '?';
               const hbTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
               console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
-
+/*
               // GT06N doesn't send GPS when stationary — use heartbeat for trip end + idle detection
               setImmediate(async () => {
                 try {
@@ -1055,9 +1055,9 @@ function startGPSServer(port) {
                                 console.error(e);
                               }
                             });
-                            /*
-                                                    await processTripDetection(device_id, vehicle_id, hbData, cfg);
-                                                    */
+                            
+                                                 //   await processTripDetection(device_id, vehicle_id, hbData, cfg);
+                                                    
                           }
 
                           // Excessive idle: ACC ON but no GPS for >= excessiveIdleMinutes
@@ -1105,6 +1105,7 @@ function startGPSServer(port) {
                 }
 
               });
+              */
             } else if (proto === 0x16) {
               pktCount.alarm++;
               const alarmType = content[26] ?? 0xFF;

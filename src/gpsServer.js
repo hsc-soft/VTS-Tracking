@@ -930,17 +930,6 @@ function startGPSServer(port) {
                 imei = decodeGT06IMEI(pkt.subarray(4, 12));
                 console.log(`🔑 GT06 IMEI accepted: ${imei} from ${clientIP}`);
               }
-            }
-            else if (proto === 0x24) {
-              pktCount.extGps = (pktCount.extGps || 0) + 1;
-              console.log("0x24 RAW:", pkt.toString("hex"));
-              // ignore
-            }
-            else if (proto === 0x94) {
-              console.log("0x94 TEST");
-              socket.write(Buffer.from(pkt), (err) => {
-                console.log("Echo write:", err || "OK");
-              });
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);

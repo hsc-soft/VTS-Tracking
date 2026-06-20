@@ -917,7 +917,35 @@ function startGPSServer(port) {
               clients.set(imei, { socket, lastSeen: Date.now() });
               console.log(`🔑 Login — IMEI: ${imei} | IP: ${clientIP}`);
 
-            // ── Proto handlers (Steps 4-8 aayenge) ────────
+            // ── 4. 0x12/0x22 GPS ──────────────────────────
+            } else if (proto === 0x12 || proto === 0x22) {
+              pktCount.gps++;
+              const data = parseGT06GPS(content, imei);
+              if (data) {
+                const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                if (pktCount.gps === 1) {
+                  const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                  const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
+                  console.log(`🚗 Movement upload — IMEI: ${imei} | GPS time: ${gpsTime} | Delay: ${delayMin} min`);
+                }
+                console.log(`📦 GPS record — IMEI: ${imei} | Time: ${recvTime}`);
+                savePing(data).catch(err => console.error('savePing Error:', err));
+              } else {
+                console.warn(`[GT06] GPS parse fail — IMEI: ${imei} | hex: ${content.toString('hex')}`);
+              }
+
+            // ── 5. 0x13 Heartbeat ─────────────────────────
+            } else if (proto === 0x13) {
+              pktCount.hb++;
+              const termInfo  = content[0] ?? 0;
+              const gpsFix    = !!(termInfo & 0x40);
+              const acc       = !!(termInfo & 0x02);
+              const voltLevel = content[1] ?? '?';
+              const signal    = content[2] ?? '?';
+              const hbTime    = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+              console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
+
+            // ── Proto handlers (Steps 6-8 aayenge) ────────
             }
 
           }

@@ -822,7 +822,7 @@ function startGPSServer(port) {
 
         if (buf.length > MAX_BUF) {
           console.warn(`[GPS] Buffer overflow from ${imei || clientIP} — closing`);
-          socket.destroy();
+          //socket.destroy();
           return;
         }
 
@@ -1179,7 +1179,7 @@ function startGPSServer(port) {
           } else {
             console.warn(`[Teltonika] Invalid IMEI from ${clientIP} — rejecting`);
             socket.write(Buffer.from([0x00]));
-            socket.destroy();
+            //socket.destroy();
             return;
           }
 
@@ -1235,7 +1235,7 @@ function startGPSServer(port) {
 
     socket.on('timeout', () => {
       console.log(`⏱️  Idle timeout — closing: ${imei || clientIP}`);
-      socket.destroy();
+      //socket.destroy();
     });
     /*
         socket.on('close', () => {
@@ -1269,7 +1269,7 @@ function startGPSServer(port) {
           hadError,
           bytesRead: socket.bytesRead,
           bytesWritten: socket.bytesWritten,
-          destroyed: socket.destroyed,
+          //destroyed: socket.destroyed,
           readyState: socket.readyState,
           remoteAddress: socket.remoteAddress,
           remotePort: socket.remotePort

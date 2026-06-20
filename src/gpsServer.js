@@ -934,20 +934,26 @@ function startGPSServer(port) {
               // ignore
             }
             else if (proto == 0x94) {
-              
+
               console.log("========== 0x94 ==========");
-/*
               console.log({
-                infoType: pkt[5],
+                hex: pkt.toString("hex"),
                 len: pkt.length,
                 serial,
-                crcRecv: crcRecv.toString(16),
-                crcCalc: crcCalc.toString(16),
-                payload: content.toString("hex"),
-                raw: pkt.toString("hex")
+                content: content.toString("hex")
               });
-              // console.log("0x94 RAW:", pkt.toString("hex"));
-              */
+              /*
+                            console.log({
+                              infoType: pkt[5],
+                              len: pkt.length,
+                              serial,
+                              crcRecv: crcRecv.toString(16),
+                              crcCalc: crcCalc.toString(16),
+                              payload: content.toString("hex"),
+                              raw: pkt.toString("hex")
+                            });
+                            // console.log("0x94 RAW:", pkt.toString("hex"));
+                            */
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);

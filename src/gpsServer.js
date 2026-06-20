@@ -197,6 +197,20 @@ function buildGT06ACK(proto, serial) {
   return pkt;
 }
 
+function buildGT06ExtACK(proto, serial) {
+  // 79 79 00 05 [proto] [serialH] [serialL] [crcH] [crcL] 0D 0A
+  const pkt = Buffer.allocUnsafe(11);
+  pkt[0] = 0x79; pkt[1] = 0x79;
+  pkt[2] = 0x00; pkt[3] = 0x05;
+  pkt[4] = proto;
+  pkt[5] = (serial >> 8) & 0xFF;
+  pkt[6] = serial & 0xFF;
+  const crc = crc16GT06(pkt.subarray(2, 7));
+  pkt[7] = (crc >> 8) & 0xFF; pkt[8] = crc & 0xFF;
+  pkt[9] = 0x0D; pkt[10] = 0x0A;
+  return pkt;
+}
+
 function parseGT06GPS(content, imei) {
   if (content.length < 18) return null;
   let off = 0;
@@ -899,11 +913,11 @@ function startGPSServer(port) {
               continue;
             }
 
-            // ACK immediately
-            if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
-              const ack = buildGT06ACK(proto, serial);
-              // console.log("ACK =>", ack.toString("hex"));
-              socket.write(ack);
+            // ACK immediately — 79 79 packets get ExtACK, 78 78 get standard ACK
+            if (isLong) {
+              socket.write(buildGT06ExtACK(proto, serial));
+            } else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
+              socket.write(buildGT06ACK(proto, serial));
             }
 
 
@@ -919,8 +933,8 @@ function startGPSServer(port) {
               console.log("0x24 RAW:", pkt.toString("hex"));
               // ignore
             }
-            else if (proto == 0x94) {
-              // console.log("0x94 RAW:", pkt.toString("hex"));
+            else if (proto === 0x94) {
+              console.log(`[GT06] 0x94 ICCID — IMEI: ${imei} | ACK sent`);
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
               const data = parseGT06GPS(content, imei);

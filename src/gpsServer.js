@@ -1,6 +1,7 @@
 const net = require('net');
 const db = require('./db');
 const redis = require('./redis');
+const clients = new Map();
 
 // ── CRC-16/IBM (a.k.a. CRC-16/ARC) ──────────────────────────────
 // Teltonika spec: Poly=0x8005, Init=0x0000, RefIn=true, RefOut=true

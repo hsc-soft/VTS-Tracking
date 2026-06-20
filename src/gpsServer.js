@@ -934,9 +934,9 @@ function startGPSServer(port) {
               // ignore
             }
             else if (proto == 0x94) {
-              /*
+              
               console.log("========== 0x94 ==========");
-
+/*
               console.log({
                 infoType: pkt[5],
                 len: pkt.length,

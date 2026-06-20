@@ -914,6 +914,8 @@ function startGPSServer(port) {
               continue;
             }
 
+            console.log(`[PROTO] 0x${proto.toString(16).padStart(2,'0')} | ${isLong?'79 79':'78 78'} | len:${len} | serial:${serial} | IMEI:${imei}`);
+
             // ACK immediately — 79 79 packets get ExtACK, 78 78 packets get standard ACK
             if (isLong) {
               const extAck = buildGT06ExtACK(proto, serial);

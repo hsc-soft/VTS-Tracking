@@ -1151,9 +1151,9 @@ function startGPSServer(port) {
               console.log(`[GT06] Unknown proto: 0x${proto.toString(16).padStart(2, '0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
             }
           }
-          return;
+         // return;
         }
-
+/*
         if (textMode) {
           const parsed = parseTextPacket(buf.toString('utf8'));
           if (parsed) {
@@ -1216,6 +1216,7 @@ function startGPSServer(port) {
             console.warn(`⚠️  Invalid Codec8Ext packet from ${imei || clientIP}`);
           }
         }
+        */
       } finally {
         // socket.resume();
       }

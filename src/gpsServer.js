@@ -185,18 +185,30 @@ function decodeGT06IMEI(buf) {
   // First nibble is padding (0), real 15-digit IMEI starts at position 1
   return s.replace(/[fF]$/, '').slice(1, 16);
 }
-
 function buildGT06ACK(proto, serial) {
-  // 78 78 05 [proto] [serialH] [serialL] [crcH] [crcL] 0D 0A
-  const pkt = Buffer.allocUnsafe(10);
-  pkt[0] = 0x78; pkt[1] = 0x78; pkt[2] = 0x05; pkt[3] = proto;
-  pkt[4] = (serial >> 8) & 0xFF;
-  pkt[5] = serial & 0xFF;
-  const crc = crc16GT06(pkt.subarray(2, 6));
-  pkt[6] = (crc >> 8) & 0xFF; pkt[7] = crc & 0xFF;
-  pkt[8] = 0x0D; pkt[9] = 0x0A;
-  return pkt;
+  // 1. सीरियल नंबर को सुरक्षित रूप से हैंडल करें
+  const sH = (serial >> 8) & 0xFF;
+  const sL = serial & 0xFF;
+
+  // 2. डेटा का वह हिस्सा जिसका CRC निकालना है (Length + Proto + Serial)
+  const crcPayload = Buffer.from([0x05, proto, sH, sL]);
+  
+  // 3. CRC कैलकुलेट करें
+  const crc = crc16GT06(crcPayload);
+  const crcH = (crc >> 8) & 0xFF;
+  const crcL = crc & 0xFF;
+
+  // 4. पूरा 10-byte का वैध पैकेट बनाकर भेजें
+  return Buffer.from([
+    0x78, 0x78, // Start
+    0x05,       // Length
+    proto,      // Protocol
+    sH, sL,     // Serial
+    crcH, crcL, // CRC
+    0x0D, 0x0A  // Stop
+  ]);
 }
+
 
 function buildGT06ExtACK(proto, serial) {
   // 79 79 00 05 [proto] [serialH] [serialL] [crcH] [crcL] 0D 0A

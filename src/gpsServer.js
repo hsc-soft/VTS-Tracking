@@ -906,7 +906,7 @@ function startGPSServer(port) {
             if (isLong) {
               const extAck = buildGT06ExtACK(proto, serial);
               socket.write(extAck);
-            } else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
+            } else if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x94].includes(proto)) {
               const ack = buildGT06ACK(proto, serial);
               socket.write(ack);
             }

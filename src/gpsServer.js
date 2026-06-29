@@ -910,7 +910,7 @@ function startGPSServer(port) {
             const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
 
-            
+
 
             // ── 6. CRC verify ─────────────────────────────
             if (crcCalc !== crcRecv) {
@@ -919,66 +919,92 @@ function startGPSServer(port) {
             }
 
             // ── 2. ACK dispatch ───────────────────────────
-            if (isLong) {
+
+            // ── ACK DISPATCH FIX ───────────────────────────
+            const protoNum = Number(proto);
+
+            // 1. अगर प्रोटोकॉल 148 (0x94) है, तो इसे जबरन Short ACK भेजें, भले ही पार्सर इसे Long कहे
+            if (protoNum === 148 || protoNum === 0x94) {
+              const ack = buildGT06ACK(0x94, serial); // आपका स्टैंडर्ड ACK फंक्शन
+              socket.write(ack);
+              console.log(`[ACK SENT] Proto: 0x94 (ICCID) | Bytes:`, ack.toString('hex'));
+            }
+            // 2. बाकी के बचे हुए Long पैकेट्स के लिए (जैसे 0x80 आदि)
+            else if (isLong) {
               const extAck = buildGT06ExtACK(proto, serial);
               socket.write(extAck);
-            } else if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x94].includes(proto)) {
-              /*
-              if (proto === 0x94) {
-                console.log(`[ACK] Sending manual static ACK for ICCID (0x94)`);
-                // यह Concox/GT06 डिवाइस के लिए यूनिवर्सल 0x94 ACK बफर है
-                const iccidStaticAck = Buffer.from([0x78, 0x78, 0x05, 0x94, 0x00, 0x01, 0xE0, 0xDC, 0x0D, 0x0A]);
-                socket.write(iccidStaticAck);
-              } else {
-                // बाकी पैकेट्स के लिए आपका पुराना लॉजिक
-                const ack = buildGT06ACK(proto, serial);
-                socket.write(ack);
-              }
-              //const ack = buildGT06ACK(proto, serial);
-              //socket.write(ack);
-              */
-              // सिर्फ टेस्टिंग के लिए स्टैटिक और डायरेक्ट बफर भेज रहे हैं
-              // ── ACK DISPATCH FIX ───────────────────────────
-              const protoNum = Number(proto);
-
-              // जाँचें कि क्या proto 148 (0x94) है या सीधे डेसिमल नंबर 94 आ रहा है
-              if (protoNum === 0x94 || protoNum === 94) {
-
-                // लॉग में आए हुए असली सीरियल नंबर (4023) का उपयोग करके डायनेमिक ACK बनाएँ
-                const currentSerial = typeof serial !== 'undefined' ? Number(serial) : 0x0001;
-                const sH = (currentSerial >> 8) & 0xFF;
-                const sL = currentSerial & 0xFF;
-
-                // 0x94 पैकेट के लिए सही CRC कैलकुलेट करें
-                const crcPayload = Buffer.from([0x05, 0x94, sH, sL]);
-                const crc = crc16GT06(crcPayload);
-                const crcH = (crc >> 8) & 0xFF;
-                const crcL = crc & 0xFF;
-
-                const iccidAck = Buffer.from([
-                  0x78, 0x78, // Start
-                  0x05,       // Length
-                  0x94,       // Protocol (ICCID)
-                  sH, sL,     // Serial Number
-                  crcH, crcL, // Calculated CRC
-                  0x0D, 0x0A  // Stop
-                ]);
-
-                socket.write(iccidAck);
-                console.log(`[ACK SENT] Proto: 0x94 (Decimal: ${protoNum}) | Bytes:`, iccidAck.toString('hex'));
-              }
-              else if (isLong) {
-                const extAck = buildGT06ExtACK(proto, serial);
-                socket.write(extAck);
-              }
-              else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(protoNum)) {
-                const ack = buildGT06ACK(proto, serial);
-                socket.write(ack);
-                console.log(`[ACK SENT] Proto: 0x${protoNum.toString(16)} | Bytes:`, ack.toString('hex'));
-              }
-
-
+              console.log(`[ACK SENT] Proto Long: ${protoNum} | Bytes:`, extAck.toString('hex'));
             }
+            // 3. अन्य सामान्य Short पैकेट्स के लिए
+            else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(protoNum) || [1, 18, 19, 22, 34].includes(protoNum)) {
+              const ack = buildGT06ACK(protoNum, serial);
+              socket.write(ack);
+              console.log(`[ACK SENT] Proto Short: 0x${protoNum.toString(16)} | Bytes:`, ack.toString('hex'));
+            }
+
+            /*
+            
+                        if (isLong) {
+                          const extAck = buildGT06ExtACK(proto, serial);
+                          socket.write(extAck);
+                        } else if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x94].includes(proto)) {
+                          
+                          if (proto === 0x94) {
+                            console.log(`[ACK] Sending manual static ACK for ICCID (0x94)`);
+                            // यह Concox/GT06 डिवाइस के लिए यूनिवर्सल 0x94 ACK बफर है
+                            const iccidStaticAck = Buffer.from([0x78, 0x78, 0x05, 0x94, 0x00, 0x01, 0xE0, 0xDC, 0x0D, 0x0A]);
+                            socket.write(iccidStaticAck);
+                          } else {
+                            // बाकी पैकेट्स के लिए आपका पुराना लॉजिक
+                            const ack = buildGT06ACK(proto, serial);
+                            socket.write(ack);
+                          }
+                          //const ack = buildGT06ACK(proto, serial);
+                          //socket.write(ack);
+                          
+                          // सिर्फ टेस्टिंग के लिए स्टैटिक और डायरेक्ट बफर भेज रहे हैं
+                          // ── ACK DISPATCH FIX ───────────────────────────
+                          const protoNum = Number(proto);
+            
+                          // जाँचें कि क्या proto 148 (0x94) है या सीधे डेसिमल नंबर 94 आ रहा है
+                          if (protoNum === 0x94 || protoNum === 94) {
+            
+                            // लॉग में आए हुए असली सीरियल नंबर (4023) का उपयोग करके डायनेमिक ACK बनाएँ
+                            const currentSerial = typeof serial !== 'undefined' ? Number(serial) : 0x0001;
+                            const sH = (currentSerial >> 8) & 0xFF;
+                            const sL = currentSerial & 0xFF;
+            
+                            // 0x94 पैकेट के लिए सही CRC कैलकुलेट करें
+                            const crcPayload = Buffer.from([0x05, 0x94, sH, sL]);
+                            const crc = crc16GT06(crcPayload);
+                            const crcH = (crc >> 8) & 0xFF;
+                            const crcL = crc & 0xFF;
+            
+                            const iccidAck = Buffer.from([
+                              0x78, 0x78, // Start
+                              0x05,       // Length
+                              0x94,       // Protocol (ICCID)
+                              sH, sL,     // Serial Number
+                              crcH, crcL, // Calculated CRC
+                              0x0D, 0x0A  // Stop
+                            ]);
+            
+                            socket.write(iccidAck);
+                            console.log(`[ACK SENT] Proto: 0x94 (Decimal: ${protoNum}) | Bytes:`, iccidAck.toString('hex'));
+                          }
+                          else if (isLong) {
+                            const extAck = buildGT06ExtACK(proto, serial);
+                            socket.write(extAck);
+                          }
+                          else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(protoNum)) {
+                            const ack = buildGT06ACK(proto, serial);
+                            socket.write(ack);
+                            console.log(`[ACK SENT] Proto: 0x${protoNum.toString(16)} | Bytes:`, ack.toString('hex'));
+                          }
+            
+            
+                        }
+                        */
 
             // ── 3. 0x01 Login ─────────────────────────────
             if (proto === 0x01) {

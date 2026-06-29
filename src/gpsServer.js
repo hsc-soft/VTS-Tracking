@@ -192,7 +192,7 @@ function buildGT06ACK(proto, serial) {
 
   // 2. डेटा का वह हिस्सा जिसका CRC निकालना है (Length + Proto + Serial)
   const crcPayload = Buffer.from([0x05, proto, sH, sL]);
-  
+
   // 3. CRC कैलकुलेट करें
   const crc = crc16GT06(crcPayload);
   const crcH = (crc >> 8) & 0xFF;
@@ -919,6 +919,7 @@ function startGPSServer(port) {
               const extAck = buildGT06ExtACK(proto, serial);
               socket.write(extAck);
             } else if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x94].includes(proto)) {
+              /*
               if (proto === 0x94) {
                 console.log(`[ACK] Sending manual static ACK for ICCID (0x94)`);
                 // यह Concox/GT06 डिवाइस के लिए यूनिवर्सल 0x94 ACK बफर है
@@ -931,6 +932,26 @@ function startGPSServer(port) {
               }
               //const ack = buildGT06ACK(proto, serial);
               //socket.write(ack);
+              */
+              // सिर्फ टेस्टिंग के लिए स्टैटिक और डायरेक्ट बफर भेज रहे हैं
+              let ackBuffer;
+
+              if (proto === 0x01) {
+                // Login ACK
+                ackBuffer = Buffer.from([0x78, 0x78, 0x05, 0x01, 0x00, 0x01, 0xD9, 0xDC, 0x0D, 0x0A]);
+              } else if (proto === 0x13) {
+                // Heartbeat ACK
+                ackBuffer = Buffer.from([0x78, 0x78, 0x05, 0x13, 0x00, 0x01, 0xE9, 0xF4, 0x0D, 0x0A]);
+              } else if (proto === 0x94) {
+                // ICCID ACK
+                ackBuffer = Buffer.from([0x78, 0x78, 0x05, 0x94, 0x00, 0x01, 0xE0, 0xDC, 0x0D, 0x0A]);
+              } else {
+                // अन्य पैकेट्स के लिए आपका फंक्शन
+                ackBuffer = buildGT06ACK(proto, serial);
+              }
+
+              socket.write(ackBuffer);
+              console.log(`[ACK SENT] Proto: 0x${proto.toString(16)} | Bytes:`, ackBuffer.toString('hex'));
             }
 
             // ── 3. 0x01 Login ─────────────────────────────

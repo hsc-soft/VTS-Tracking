@@ -897,10 +897,12 @@ function startGPSServer(port) {
             let proto, content, crcCalc;
             if (isShort) {
               proto = pkt[3];
+              console.log("Proto Short:", proto);
               content = pkt.subarray(4, pkt.length - 6);
               crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
             } else {
               proto = pkt[4];
+              console.log("Proto Long:", proto);
               content = pkt.subarray(5, pkt.length - 6);
               crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
             }
@@ -908,7 +910,7 @@ function startGPSServer(port) {
             const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
 
-            console.log("Proto:", proto.toString(16).padStart(2, '0'), "Serial:", serial, "CRC Calc:", crcCalc.toString(16), "CRC Recv:", crcRecv.toString(16));
+            
 
             // ── 6. CRC verify ─────────────────────────────
             if (crcCalc !== crcRecv) {

@@ -934,24 +934,33 @@ function startGPSServer(port) {
               //socket.write(ack);
               */
               // सिर्फ टेस्टिंग के लिए स्टैटिक और डायरेक्ट बफर भेज रहे हैं
-              let ackBuffer;
+              // ── 2. NEW ACK DISPATCH ───────────────────────────
+              const protoNum = Number(proto); // सुरक्षित रूप से नंबर में बदलें
 
-              if (proto === 0x01) {
-                // Login ACK
-                ackBuffer = Buffer.from([0x78, 0x78, 0x05, 0x01, 0x00, 0x01, 0xD9, 0xDC, 0x0D, 0x0A]);
-              } else if (proto === 0x13) {
-                // Heartbeat ACK
-                ackBuffer = Buffer.from([0x78, 0x78, 0x05, 0x13, 0x00, 0x01, 0xE9, 0xF4, 0x0D, 0x0A]);
-              } else if (proto === 0x94) {
-                // ICCID ACK
-                ackBuffer = Buffer.from([0x78, 0x78, 0x05, 0x94, 0x00, 0x01, 0xE0, 0xDC, 0x0D, 0x0A]);
-              } else {
-                // अन्य पैकेट्स के लिए आपका फंक्शन
-                ackBuffer = buildGT06ACK(proto, serial);
+              if (protoNum === 0x94 || proto === '94' || proto === 0x94) {
+                console.log(`[ACK SENT] Proto: 0x94 | Bytes: 787805940001e0dc0d0a`);
+                const iccidStaticAck = Buffer.from([0x78, 0x78, 0x05, 0x94, 0x00, 0x01, 0xE0, 0xDC, 0x0D, 0x0A]);
+                socket.write(iccidStaticAck);
+              }
+              else if (isLong) {
+                const extAck = buildGT06ExtACK(proto, serial);
+                socket.write(extAck);
+              }
+              else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(protoNum)) {
+                let ackBuffer;
+
+                if (protoNum === 0x01) {
+                  ackBuffer = Buffer.from([0x78, 0x78, 0x05, 0x01, 0x00, 0x01, 0xD9, 0xDC, 0x0D, 0x0A]);
+                } else if (protoNum === 0x13) {
+                  ackBuffer = Buffer.from([0x78, 0x78, 0x05, 0x13, 0x00, 0x01, 0xE9, 0xF4, 0x0D, 0x0A]);
+                } else {
+                  ackBuffer = buildGT06ACK(proto, serial);
+                }
+
+                socket.write(ackBuffer);
+                console.log(`[ACK SENT] Proto: 0x${protoNum.toString(16)} | Bytes:`, ackBuffer.toString('hex'));
               }
 
-              socket.write(ackBuffer);
-              console.log(`[ACK SENT] Proto: 0x${proto.toString(16)} | Bytes:`, ackBuffer.toString('hex'));
             }
 
             // ── 3. 0x01 Login ─────────────────────────────

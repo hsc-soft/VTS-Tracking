@@ -857,7 +857,7 @@ function startGPSServer(port) {
 
             // ── 1. Packet type detect ──────────────────────
             const isShort = buf[0] === 0x78 && buf[1] === 0x78;
-            const isLong  = buf[0] === 0x79 && buf[1] === 0x79;
+            const isLong = buf[0] === 0x79 && buf[1] === 0x79;
 
             if (!isShort && !isLong) {
               buf = buf.subarray(1);
@@ -867,10 +867,10 @@ function startGPSServer(port) {
             // ── 2. Length calculate ────────────────────────
             let len, totalLen;
             if (isShort) {
-              len      = buf[2];
+              len = buf[2];
               totalLen = len + 5;
             } else {
-              len      = buf.readUInt16BE(2);
+              len = buf.readUInt16BE(2);
               totalLen = len + 6;
             }
 
@@ -884,21 +884,21 @@ function startGPSServer(port) {
             // ── 5. Fields parse ────────────────────────────
             let proto, content, crcCalc;
             if (isShort) {
-              proto   = pkt[3];
+              proto = pkt[3];
               content = pkt.subarray(4, pkt.length - 6);
               crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
             } else {
-              proto   = pkt[4];
+              proto = pkt[4];
               content = pkt.subarray(5, pkt.length - 6);
               crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
             }
 
-            const serial  = pkt.readUInt16BE(pkt.length - 6);
+            const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
 
             // ── 6. CRC verify ─────────────────────────────
             if (crcCalc !== crcRecv) {
-              console.warn(`[GT06] CRC fail — proto:0x${proto.toString(16).padStart(2,'0')} calc:${crcCalc.toString(16)} recv:${crcRecv.toString(16)}`);
+              console.warn(`[GT06] CRC fail — proto:0x${proto.toString(16).padStart(2, '0')} calc:${crcCalc.toString(16)} recv:${crcRecv.toString(16)}`);
               continue;
             }
 
@@ -907,8 +907,18 @@ function startGPSServer(port) {
               const extAck = buildGT06ExtACK(proto, serial);
               socket.write(extAck);
             } else if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x94].includes(proto)) {
-              const ack = buildGT06ACK(proto, serial);
-              socket.write(ack);
+              if (proto === 0x94) {
+                console.log(`[ACK] Sending manual static ACK for ICCID (0x94)`);
+                // यह Concox/GT06 डिवाइस के लिए यूनिवर्सल 0x94 ACK बफर है
+                const iccidStaticAck = Buffer.from([0x78, 0x78, 0x05, 0x94, 0x00, 0x01, 0xE0, 0xDC, 0x0D, 0x0A]);
+                socket.write(iccidStaticAck);
+              } else {
+                // बाकी पैकेट्स के लिए आपका पुराना लॉजिक
+                const ack = buildGT06ACK(proto, serial);
+                socket.write(ack);
+              }
+              //const ack = buildGT06ACK(proto, serial);
+              //socket.write(ack);
             }
 
             // ── 3. 0x01 Login ─────────────────────────────
@@ -918,7 +928,7 @@ function startGPSServer(port) {
               clients.set(imei, { socket, lastSeen: Date.now() });
               console.log(`🔑 Login — IMEI: ${imei} | IP: ${clientIP}`);
 
-            // ── 4. 0x12 / 0x22 GPS ────────────────────────
+              // ── 4. 0x12 / 0x22 GPS ────────────────────────
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
 
@@ -961,15 +971,15 @@ function startGPSServer(port) {
                 }
               }
 
-            // ── 5. 0x13 Heartbeat ─────────────────────────
+              // ── 5. 0x13 Heartbeat ─────────────────────────
             } else if (proto === 0x13) {
               pktCount.hb++;
-              const termInfo  = content[0] ?? 0;
-              const gpsFix    = !!(termInfo & 0x40);
-              const acc       = !!(termInfo & 0x02);
+              const termInfo = content[0] ?? 0;
+              const gpsFix = !!(termInfo & 0x40);
+              const acc = !!(termInfo & 0x02);
               const voltLevel = content[1] ?? '?';
-              const signal    = content[2] ?? '?';
-              const hbTime    = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+              const signal = content[2] ?? '?';
+              const hbTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
               console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
 
               setImmediate(async () => {
@@ -1062,17 +1072,17 @@ function startGPSServer(port) {
                 }
               });
 
-            // ── 6. 0x16 Alarm ─────────────────────────────
+              // ── 6. 0x16 Alarm ─────────────────────────────
             } else if (proto === 0x16) {
               pktCount.alarm++;
               const alarmType = content[26] ?? 0xFF;
               const ALARM_NAMES = {
-                0x01: 'SOS',           0x02: 'Power cut',      0x03: 'Vibration',
-                0x04: 'Geo enter',     0x05: 'Geo exit',       0x06: 'Overspeed',
-                0x09: 'Displacement',  0x0E: 'Low battery',
-                0xFE: 'ACC OFF',       0xFF: 'ACC ON'
+                0x01: 'SOS', 0x02: 'Power cut', 0x03: 'Vibration',
+                0x04: 'Geo enter', 0x05: 'Geo exit', 0x06: 'Overspeed',
+                0x09: 'Displacement', 0x0E: 'Low battery',
+                0xFE: 'ACC OFF', 0xFF: 'ACC ON'
               };
-              const alarmName = ALARM_NAMES[alarmType] || `0x${alarmType.toString(16).padStart(2,'0')}`;
+              const alarmName = ALARM_NAMES[alarmType] || `0x${alarmType.toString(16).padStart(2, '0')}`;
               const data = content.length >= 26 ? parseGT06GPS(content.subarray(0, 26), imei) : null;
               if (data) {
                 if (alarmType === 0xFF) data.ignition = true;
@@ -1081,11 +1091,11 @@ function startGPSServer(port) {
                 console.log(`🚨 Alarm [${alarmName}] — IMEI: ${imei} | Ignition: ${data.ignition ? 'ON' : 'OFF'} | Time: ${recvTime}`);
                 savePing(data).catch(err => console.error('savePing Error:', err));
                 const ALARM_ALERT_MAP = {
-                  0x01: { type: 'sos',          severity: 'critical' },
-                  0x02: { type: 'power_cut',    severity: 'critical' },
-                  0x03: { type: 'vibration',    severity: 'warning'  },
-                  0xFE: { type: 'ignition_off', severity: 'info'     },
-                  0xFF: { type: 'ignition_on',  severity: 'info'     },
+                  0x01: { type: 'sos', severity: 'critical' },
+                  0x02: { type: 'power_cut', severity: 'critical' },
+                  0x03: { type: 'vibration', severity: 'warning' },
+                  0xFE: { type: 'ignition_off', severity: 'info' },
+                  0xFF: { type: 'ignition_on', severity: 'info' },
                 };
                 const alertDef = ALARM_ALERT_MAP[alarmType];
                 if (alertDef && imei) {
@@ -1109,15 +1119,15 @@ function startGPSServer(port) {
                 console.warn(`[GT06] Alarm parse fail — IMEI: ${imei} | content len: ${content.length}`);
               }
 
-            // ── 7. 0x94 ICCID ─────────────────────────────
+              // ── 7. 0x94 ICCID ─────────────────────────────
             } else if (proto === 0x94) {
               const iccid = content.toString('hex');
               console.log(`📟 ICCID — IMEI: ${imei} | ${iccid}`);
 
-            // ── 8. Unknown proto ───────────────────────────
+              // ── 8. Unknown proto ───────────────────────────
             } else {
               pktCount.other++;
-              console.log(`[GT06] Unknown proto:0x${proto.toString(16).padStart(2,'0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
+              console.log(`[GT06] Unknown proto:0x${proto.toString(16).padStart(2, '0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
             }
 
           }

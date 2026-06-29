@@ -908,6 +908,8 @@ function startGPSServer(port) {
             const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
 
+            console.log("Proto:", proto.toString(16).padStart(2, '0'), "Serial:", serial, "CRC Calc:", crcCalc.toString(16), "CRC Recv:", crcRecv.toString(16));
+
             // ── 6. CRC verify ─────────────────────────────
             if (crcCalc !== crcRecv) {
               console.warn(`[GT06] CRC fail — proto:0x${proto.toString(16).padStart(2, '0')} calc:${crcCalc.toString(16)} recv:${crcRecv.toString(16)}`);

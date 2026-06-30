@@ -832,7 +832,10 @@ function startGPSServer(port) {
     const clientIP = socket.remoteAddress;
     console.log(`📡 Device connected: ${clientIP}`);
 
-    socket.setTimeout(0); 
+    // सर्वर साइड टाइमआउट और कीप-अलाइव को एकदम परफेक्ट सेट करें
+    socket.setTimeout(0);
+    socket.setKeepAlive(true, 60000);
+    socket.setNoDelay(true);
 
     let imei = null;
     let buf = Buffer.alloc(0);
@@ -840,18 +843,15 @@ function startGPSServer(port) {
     let gt06Mode = false;
     const pktCount = { login: 0, gps: 0, hb: 0, alarm: 0, other: 0 };
 
-    const MAX_BUF = 65_536; // 64 KB — drop connection if a client sends garbage this large
+    const MAX_BUF = 65_536; // 64 KB
 
     socket.on('data', async (chunk) => {
-      // Pause prevents a second 'data' event from firing while we await savePing(),
-      // which would corrupt the shared `buf` state.
-      // socket.pause();
       try {
         buf = Buffer.concat([buf, chunk]);
 
         if (buf.length > MAX_BUF) {
           console.warn(`[GPS] Buffer overflow from ${imei || clientIP} — closing`);
-          //socket.destroy();
+          socket.destroy();
           return;
         }
 
@@ -899,12 +899,10 @@ function startGPSServer(port) {
             let proto, content, crcCalc;
             if (isShort) {
               proto = pkt[3];
-              console.log("Proto Short:", proto);
               content = pkt.subarray(4, pkt.length - 6);
               crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
             } else {
               proto = pkt[4];
-              console.log("Proto Long:", proto);
               content = pkt.subarray(5, pkt.length - 6);
               crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
             }
@@ -912,197 +910,60 @@ function startGPSServer(port) {
             const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
 
-
-
             // ── 6. CRC verify ─────────────────────────────
             if (crcCalc !== crcRecv) {
               console.warn(`[GT06] CRC fail — proto:0x${proto.toString(16).padStart(2, '0')} calc:${crcCalc.toString(16)} recv:${crcRecv.toString(16)}`);
               continue;
             }
 
-            // ── 2. ACK dispatch ───────────────────────────
-
-            // ── ACK DISPATCH FIX ───────────────────────────
-
-
-            // ── 🚀 ARCHITECTURAL COLLISION FIX (THE FINAL WEAPON) ──────────────────
-const protoNum = Number(proto);
-
-if (Buffer.isBuffer(chunk) && chunk.length >= 10) {
-  
-  if ([0x01, 0x13, 0x16, 0x22, 0x94, 148].includes(protoNum)) {
-    
-    const serialH = chunk[chunk.length - 6];
-    const serialL = chunk[chunk.length - 5];
-    const crcH    = chunk[chunk.length - 4];
-    const crcL    = chunk[chunk.length - 3];
-    const actualProto = (protoNum === 148) ? 0x94 : protoNum;
-
-    const dynamicAck = Buffer.from([
-      0x78, 0x78,
-      0x05,
-      actualProto,
-      serialH, serialL,
-      crcH, crcL,
-      0x0D, 0x0A
-    ]);
-
-    // 🎯 मुख्य सुधार: सॉकेट पर डेटा लिखने के बाद बफ़र फ्लश होने का इंतज़ार करें
-    socket.write(dynamicAck, 'binary', () => {
-        // यह कॉलबैक तब चलता है जब डेटा वास्तव में नेटवर्क पर डिवाइस के लिए रवाना हो जाता है
-        console.log(`[🟢 FLUSHED TO WIRE] ACK for 0x${actualProto.toString(16)} successfully sent and buffer cleared.`);
-    });
-  }
-  else if (isLong) {
-    const extAck = buildGT06ExtACK(proto, serial);
-    socket.write(extAck, 'binary', () => {});
-  }
-}
-
-
-            /*
-            // ── 🚀 FINAL DYNAMIC ACK DISPATCH (SUPER STABLE) ──────────────────
+            // ── 7. 🚀 ARCHITECTURAL COLLISION FIX (100% FIXED) ──────────────────
             const protoNum = Number(proto);
 
-            if (Buffer.isBuffer(chunk) && chunk.length >= 10) {
+            // हमेशा कटे हुए सिंगल पैकेट 'pkt' का आकार जांचें, पूरे 'chunk' का नहीं
+            if (pkt.length >= 10) {
 
-              // 1. Login (0x01), Heartbeat (0x13), और ICCID (0x94) तीनों के लिए डायनेमिक ACK
+              // 0x01, 0x13, 0x16, 0x22, 0x94 पैकेट्स के लिए रिस्पॉन्स
               if ([0x01, 0x13, 0x16, 0x22, 0x94, 148].includes(protoNum)) {
 
-                // पैकेट के आखरी हिस्सों से डिवाइस का असली Serial और CRC काटें
-                const serialH = chunk[chunk.length - 6];
-                const serialL = chunk[chunk.length - 5];
-                const crcH = chunk[chunk.length - 4];
-                const crcL = chunk[chunk.length - 3];
-
-                // पैकेट टाइप तय करें (अगर 148 या 0x94 है तो भी सही हेक्स वैल्यू 0x94 ही जाएगी)
+                // बिल्कुल सही पैकेट (pkt) के अंत से सीरियल और CRC काटें
+                const serialH = pkt[pkt.length - 6];
+                const serialL = pkt[pkt.length - 5];
+                const crcH = pkt[pkt.length - 4];
+                const crcL = pkt[pkt.length - 3];
                 const actualProto = (protoNum === 148) ? 0x94 : protoNum;
 
                 const dynamicAck = Buffer.from([
-                  0x78, 0x78,       // Start Bits
-                  0x05,             // Length
-                  actualProto,      // Protocol Number
-                  serialH, serialL, // डिवाइस का अपना भेजा हुआ असली सीरियल नंबर
-                  crcH, crcL,       // डिवाइस का अपना भेजा हुआ असली CRC
-                  0x0D, 0x0A        // Stop Bits
+                  0x78, 0x78,
+                  0x05,
+                  actualProto,
+                  serialH, serialL,
+                  crcH, crcL,
+                  0x0D, 0x0A
                 ]);
 
-                socket.write(dynamicAck);
-                console.log(`[🚀 DYNAMIC ACK SENT] Proto: 0x${actualProto.toString(16)} | Bytes:`, dynamicAck.toString('hex'));
+                // बफ़र ओवरलैप को रोकने के लिए तुरंत फ्लश करें
+                socket.write(dynamicAck, 'binary', () => {
+                  console.log(`[🟢 FLUSHED TO WIRE] ACK for 0x${actualProto.toString(16)} successfully sent.`);
+                });
               }
-
-              // 2. Long पैकेट्स के लिए बैकअप
               else if (isLong) {
                 const extAck = buildGT06ExtACK(proto, serial);
-                socket.write(extAck);
-                console.log(`[ACK SENT] Proto Long: ${protoNum}`);
+                socket.write(extAck, 'binary', () => { });
               }
             }
 
-            */
-
-            /*
-            const protoNum = Number(proto);
-
-            // 1. अगर प्रोटोकॉल 148 (0x94) है, तो इसे जबरन Short ACK भेजें, भले ही पार्सर इसे Long कहे
-            if (protoNum === 148 || protoNum === 0x94) {
-              // GT06N ICCID पैकेट के लिए आधिकारिक 6-byte का रिस्पॉन्स बफर
-              const officialIccidAck = Buffer.from([0x78, 0x78, 0x00, 0x94, 0x0D, 0x0A]);
-
-              socket.write(officialIccidAck);
-              console.log(`[🚀 OFFICIAL ACK SENT] Proto: 0x94 (ICCID) | Bytes: 787800940d0a`);
-            }
-            // 2. बाकी के बचे हुए Long पैकेट्स के लिए (जैसे 0x80 आदि)
-            else if (isLong) {
-              const extAck = buildGT06ExtACK(proto, serial);
-              socket.write(extAck);
-              console.log(`[ACK SENT] Proto Long: ${protoNum} | Bytes:`, extAck.toString('hex'));
-            }
-            // 3. अन्य सामान्य Short पैकेट्स के लिए
-            else if ([0x01, 0x13, 0x16, 0x22].includes(protoNum) || [1, 19, 22, 34].includes(protoNum)) {
-              const ack = buildGT06ACK(protoNum, serial);
-              socket.write(ack);
-              console.log(`[ACK SENT] Proto Short: 0x${protoNum.toString(16)} | Bytes:`, ack.toString('hex'));
-            }
-
-            */
-
-            /*
-            
-                        if (isLong) {
-                          const extAck = buildGT06ExtACK(proto, serial);
-                          socket.write(extAck);
-                        } else if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x94].includes(proto)) {
-                          
-                          if (proto === 0x94) {
-                            console.log(`[ACK] Sending manual static ACK for ICCID (0x94)`);
-                            // यह Concox/GT06 डिवाइस के लिए यूनिवर्सल 0x94 ACK बफर है
-                            const iccidStaticAck = Buffer.from([0x78, 0x78, 0x05, 0x94, 0x00, 0x01, 0xE0, 0xDC, 0x0D, 0x0A]);
-                            socket.write(iccidStaticAck);
-                          } else {
-                            // बाकी पैकेट्स के लिए आपका पुराना लॉजिक
-                            const ack = buildGT06ACK(proto, serial);
-                            socket.write(ack);
-                          }
-                          //const ack = buildGT06ACK(proto, serial);
-                          //socket.write(ack);
-                          
-                          // सिर्फ टेस्टिंग के लिए स्टैटिक और डायरेक्ट बफर भेज रहे हैं
-                          // ── ACK DISPATCH FIX ───────────────────────────
-                          const protoNum = Number(proto);
-            
-                          // जाँचें कि क्या proto 148 (0x94) है या सीधे डेसिमल नंबर 94 आ रहा है
-                          if (protoNum === 0x94 || protoNum === 94) {
-            
-                            // लॉग में आए हुए असली सीरियल नंबर (4023) का उपयोग करके डायनेमिक ACK बनाएँ
-                            const currentSerial = typeof serial !== 'undefined' ? Number(serial) : 0x0001;
-                            const sH = (currentSerial >> 8) & 0xFF;
-                            const sL = currentSerial & 0xFF;
-            
-                            // 0x94 पैकेट के लिए सही CRC कैलकुलेट करें
-                            const crcPayload = Buffer.from([0x05, 0x94, sH, sL]);
-                            const crc = crc16GT06(crcPayload);
-                            const crcH = (crc >> 8) & 0xFF;
-                            const crcL = crc & 0xFF;
-            
-                            const iccidAck = Buffer.from([
-                              0x78, 0x78, // Start
-                              0x05,       // Length
-                              0x94,       // Protocol (ICCID)
-                              sH, sL,     // Serial Number
-                              crcH, crcL, // Calculated CRC
-                              0x0D, 0x0A  // Stop
-                            ]);
-            
-                            socket.write(iccidAck);
-                            console.log(`[ACK SENT] Proto: 0x94 (Decimal: ${protoNum}) | Bytes:`, iccidAck.toString('hex'));
-                          }
-                          else if (isLong) {
-                            const extAck = buildGT06ExtACK(proto, serial);
-                            socket.write(extAck);
-                          }
-                          else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(protoNum)) {
-                            const ack = buildGT06ACK(proto, serial);
-                            socket.write(ack);
-                            console.log(`[ACK SENT] Proto: 0x${protoNum.toString(16)} | Bytes:`, ack.toString('hex'));
-                          }
-            
-            
-                        }
-                        */
-
-            // ── 3. 0x01 Login ─────────────────────────────
+            // ── इसके नीचे का कोड आपके Part 2 में आएगा ──────────────────
+            // ── PART 2: PROTOCOL ROUTING & PARSING ───────────────────────────
             if (proto === 0x01) {
               pktCount.login++;
               imei = decodeGT06IMEI(content.subarray(0, 8));
               clients.set(imei, { socket, lastSeen: Date.now() });
               console.log(`🔑 Login — IMEI: ${imei} | IP: ${clientIP}`);
 
-              // ── 4. 0x12 / 0x22 GPS ────────────────────────
+              // ── 0x12 / 0x22 GPS LOCATION PACKETS ──────────────────────────
             } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
 
-              // 0x22 ya 0x12 multi-record check: content[0] = count, baaki N×18 bytes
               const maybeCount = content[0];
               const isMultiRecord = proto === 0x22 ||
                 (maybeCount >= 1 && maybeCount <= 20 && content.length === 1 + maybeCount * 18);
@@ -1110,375 +971,202 @@ if (Buffer.isBuffer(chunk) && chunk.length >= 10) {
               if (isMultiRecord) {
                 const recordCount = maybeCount;
                 console.log(`📦 Buffered GPS — IMEI: ${imei} | Records: ${recordCount}`);
+
                 for (let i = 0; i < recordCount; i++) {
                   const recordStart = 1 + i * 18;
                   if (recordStart + 18 > content.length) break;
+
                   const record = content.subarray(recordStart, recordStart + 18);
-                  const data = parseGT06GPS(record, imei);
-                  if (data) {
-                    data.protocol = 'gt06_buffered';
-                    const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                    console.log(`  ↳ Record ${i + 1}/${recordCount} | Time: ${gpsTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
-                    savePing(data).catch(err => console.error('savePing Error:', err));
-                  } else {
-                    console.warn(`[GT06] Buffered record ${i + 1} parse fail — hex: ${record.toString('hex')}`);
+
+                  // पूरे पार्सिंग और डेटाबेस ऑपरेशन को मुख्य सॉकेट थ्रेड से अलग करें
+                  try {
+                    const data = parseGT06GPS(record, imei);
+                    if (data) {
+                      data.protocol = 'gt06_buffered';
+                      const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                      console.log(`  ↳ Record ${i + 1}/${recordCount} | Time: ${gpsTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
+
+                      // setTimeout(..., 0) हैवी डेटाबेस टास्क को लूप ब्लॉक से मुक्त रखता है
+                      setTimeout(async () => {
+                        try { await savePing(data); }
+                        catch (err) { console.error('[Safe DB Catch] Buffered savePing Error:', err.message); }
+                      }, 0);
+                    } else {
+                      console.warn(`[GT06] Buffered record ${i + 1} parse fail — hex: ${record.toString('hex')}`);
+                    }
+                  } catch (parseInnerErr) {
+                    console.error(`[GT06 Exception Handled] Buffered loop bypass:`, parseInnerErr.message);
                   }
                 }
               } else {
-                // Single real-time record
-                const data = parseGT06GPS(content, imei);
-                if (data) {
-                  const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                  const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                  const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
-                  if (pktCount.gps === 1) {
-                    console.log(`🚗 Movement — IMEI: ${imei} | GPS time: ${gpsTime} | Delay: ${delayMin} min`);
+                // Single real-time record (रियल-टाइम लोकेशन)
+                try {
+                  const data = parseGT06GPS(content, imei);
+                  if (data) {
+                    const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                    const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                    const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
+
+                    if (pktCount.gps === 1) {
+                      console.log(`🚗 Movement — IMEI: ${imei} | GPS time: ${gpsTime} | Delay: ${delayMin} min`);
+                    }
+                    console.log(`📍 GPS record — IMEI: ${imei} | Time: ${recvTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
+
+                    // सॉकेट थ्रेड को फ्री रखने के लिए एसिंक्रोनस आइसोलेशन
+                    setTimeout(async () => {
+                      try { await savePing(data); }
+                      catch (err) { console.error('[Safe DB Catch] Realtime savePing Error:', err.message); }
+                    }, 0);
+                  } else {
+                    console.warn(`[GT06] GPS parse fail — IMEI: ${imei} | hex: ${content.toString('hex')}`);
                   }
-                  console.log(`📍 GPS record — IMEI: ${imei} | Time: ${recvTime}`);
-                  savePing(data).catch(err => console.error('savePing Error:', err));
-                } else {
-                  console.warn(`[GT06] GPS parse fail — IMEI: ${imei} | hex: ${content.toString('hex')}`);
+                } catch (realtimeParseErr) {
+                  console.error('[GT06 Exception Handled] Realtime parse bypass:', realtimeParseErr.message);
                 }
               }
 
-              // ── 5. 0x13 Heartbeat ─────────────────────────
-            } else if (proto === 0x13 || proto===19) {
-             // socket.write(Buffer.from([0x78, 0x78, 0x01, 0x00, 0x0D, 0x0A]));
+              // ── इसके नीचे आपका अगला पार्ट (Heartbeat 0x13 और बाकी कंडीशंस) आएगा ──
+              // ── PART 3: 0x13 HEARTBEAT PACKET ROUTING ────────────────────────
+            } else if (proto === 0x13 || proto === 19) {
               pktCount.hb++;
+
               const termInfo = content[0] ?? 0;
               const gpsFix = !!(termInfo & 0x40);
               const acc = !!(termInfo & 0x02);
               const voltLevel = content[1] ?? '?';
               const signal = content[2] ?? '?';
               const hbTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+
               console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
-              /*
-                            setImmediate(async () => {
-                              try {
-                                if (!imei) return;
-              
-                                await redis.set(`device:lastping:${imei}`, Date.now().toString(), { ex: 7200 });
-              
-                                const rawLastPos = await redis.get(`device:lastpos:${imei}`);
-                                if (!rawLastPos) {
-                                  console.log(`[HB] No lastpos for ${imei} — skipping`);
-                                  return;
-                                }
-                                const lastPos = typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos;
-              
-                                const devRes = await db.query(
-                                  `SELECT d.id AS device_id, v.id AS vehicle_id
-                                   FROM devices d LEFT JOIN vehicles v ON v.device_id = d.id
-                                   WHERE d.imei = $1 AND d.is_active = true`, [imei]
-                                );
-                                if (!devRes.rows.length) return;
-                                const { device_id, vehicle_id } = devRes.rows[0];
-              
-                                // ── Ignition state change ──────────────────
-                                const prevAccRaw = await redis.get(`device:acc:${imei}`);
-                                const prevAcc = prevAccRaw === 'on';
-                                if (acc !== prevAcc) {
-                                  await redis.set(`device:acc:${imei}`, acc ? 'on' : 'off', { ex: 86400 });
-                                  await savePing({
-                                    imei, ts: new Date().toISOString(),
-                                    latitude: lastPos.lat, longitude: lastPos.lng,
-                                    speed_kmh: 0, heading: 0, ignition: acc,
-                                    battery_v: null, satellites: null, altitude: 0,
-                                    protocol: 'gt06_heartbeat', io: {}
-                                  });
-                                  if (vehicle_id) {
-                                    await db.query(
-                                      `INSERT INTO alerts (vehicle_id, alert_type, severity, value, latitude, longitude)
-                                       VALUES ($1,$2,$3,$4,$5,$6)`,
-                                      [vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
-                                        acc ? 1 : 0, lastPos.lat, lastPos.lng]
-                                    );
-                                    console.log(`🔑 Ignition ${acc ? 'ON' : 'OFF'} — IMEI: ${imei}`);
-                                  }
-                                }
-              
-                                // ── Trip detection (existing trip only) ────
-                                const cfg = resolveConfig({});
-                                const tripRaw = await redis.get(`trip:active:${device_id}`);
-                                if (tripRaw) {
-                                  const hbData = {
-                                    imei, ts: new Date().toISOString(),
-                                    latitude: lastPos.lat, longitude: lastPos.lng,
-                                    speed_kmh: 0, heading: 0, ignition: acc,
-                                    battery_v: null, satellites: null,
-                                    protocol: 'gt06_heartbeat', io: {}
-                                  };
-                                  setImmediate(async () => {
-                                    try { await processTripDetection(device_id, vehicle_id, hbData, cfg); }
-                                    catch (e) { console.error('[HB] Trip detection error:', e.message); }
-                                  });
-                                }
-              
-                                // ── Excessive idle ─────────────────────────
-                                if (acc && vehicle_id) {
-                                  const gapMin = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
-                                  if (gapMin >= cfg.excessiveIdleMinutes) {
-                                    const alertedKey = `idle:alerted:${vehicle_id}`;
-                                    if (!await redis.get(alertedKey)) {
-                                      await triggerAlert(vehicle_id, 'excessive_idle', 'warning',
-                                        parseFloat(gapMin.toFixed(1)), lastPos.lat, lastPos.lng);
-                                      await redis.set(alertedKey, '1', { ex: 3600 });
-                                      console.log(`⏸️  Excessive idle — Vehicle: ${vehicle_id} | ${gapMin.toFixed(1)} min`);
-                                    }
-                                  }
-                                }
-              
-                                // ── Live position update ───────────────────
-                                const gapFromLastGps = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
-                                if (!acc || gapFromLastGps > 2) {
-                                  await redis.set(`device:${imei}`, JSON.stringify({
-                                    lat: lastPos.lat, lng: lastPos.lng,
-                                    speed: 0, heading: 0, ignition: acc,
-                                    battery: null, ts: new Date().toISOString()
-                                  }), { ex: 300 });
-                                }
-              
-                              } catch (err) {
-                                console.error(`[HB] Error — IMEI: ${imei}:`, err.message);
-                              }
-                            });
-              */
-              // ── 6. 0x16 Alarm ─────────────────────────────
-            } else if (proto === 0x16) {
-              pktCount.alarm++;
-              const alarmType = content[26] ?? 0xFF;
-              const ALARM_NAMES = {
-                0x01: 'SOS', 0x02: 'Power cut', 0x03: 'Vibration',
-                0x04: 'Geo enter', 0x05: 'Geo exit', 0x06: 'Overspeed',
-                0x09: 'Displacement', 0x0E: 'Low battery',
-                0xFE: 'ACC OFF', 0xFF: 'ACC ON'
-              };
-              const alarmName = ALARM_NAMES[alarmType] || `0x${alarmType.toString(16).padStart(2, '0')}`;
-              const data = content.length >= 26 ? parseGT06GPS(content.subarray(0, 26), imei) : null;
-              if (data) {
-                if (alarmType === 0xFF) data.ignition = true;
-                else if (alarmType === 0xFE) data.ignition = false;
-                const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                console.log(`🚨 Alarm [${alarmName}] — IMEI: ${imei} | Ignition: ${data.ignition ? 'ON' : 'OFF'} | Time: ${recvTime}`);
-                savePing(data).catch(err => console.error('savePing Error:', err));
-                const ALARM_ALERT_MAP = {
-                  0x01: { type: 'sos', severity: 'critical' },
-                  0x02: { type: 'power_cut', severity: 'critical' },
-                  0x03: { type: 'vibration', severity: 'warning' },
-                  0xFE: { type: 'ignition_off', severity: 'info' },
-                  0xFF: { type: 'ignition_on', severity: 'info' },
-                };
-                const alertDef = ALARM_ALERT_MAP[alarmType];
-                if (alertDef && imei) {
-                  setImmediate(async () => {
+
+              // ── डेटाबेस और रेडिस का भारी काम सुरक्षित थ्रेड में वापस शुरू (Uncommented & Secured) ──
+              setTimeout(async () => {
+                try {
+                  if (!imei) return;
+
+                  // 1. रेडिस पिंग अपडेट (सुरक्षित कैच के साथ)
+                  await redis.set(`device:lastping:${imei}`, Date.now().toString(), { ex: 7200 }).catch(e => null);
+
+                  const rawLastPos = await redis.get(`device:lastpos:${imei}`).catch(e => null);
+                  if (!rawLastPos) {
+                    console.log(`[HB] No lastpos for ${imei} — skipping DB operations safely`);
+                    return;
+                  }
+
+                  const lastPos = typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos;
+
+                  // 2. डेटाबेस क्वेरी
+                  const devRes = await db.query(
+                    `SELECT d.id AS device_id, v.id AS vehicle_id
+                     FROM devices d LEFT JOIN vehicles v ON v.device_id = d.id
+                     WHERE d.imei = $1 AND d.is_active = true`, [imei]
+                  ).catch(e => { console.error('[HB DB Query Error]:', e.message); return { rows: [] }; });
+
+                  if (!devRes || !devRes.rows || !devRes.rows.length) return;
+                  const { device_id, vehicle_id } = devRes.rows[0];
+
+                  // 3. Ignition State Change (इग्निशन स्थिति में बदलाव)
+                  const prevAccRaw = await redis.get(`device:acc:${imei}`).catch(e => null);
+                  const prevAcc = prevAccRaw === 'on';
+
+                  if (acc !== prevAcc) {
+                    await redis.set(`device:acc:${imei}`, acc ? 'on' : 'off', { ex: 86400 }).catch(e => null);
+
                     try {
-                      const devRes = await db.query(
-                        `SELECT v.id AS vehicle_id FROM devices d
-                         LEFT JOIN vehicles v ON v.device_id = d.id
-                         WHERE d.imei = $1 AND d.is_active = true`, [imei]
-                      );
-                      if (devRes.rows.length && devRes.rows[0].vehicle_id) {
-                        await triggerAlert(devRes.rows[0].vehicle_id, alertDef.type,
-                          alertDef.severity, alarmType, data.latitude, data.longitude);
+                      await savePing({
+                        imei, ts: new Date().toISOString(),
+                        latitude: lastPos.lat, longitude: lastPos.lng,
+                        speed_kmh: 0, heading: 0, ignition: acc,
+                        battery_v: null, satellites: null, altitude: 0,
+                        protocol: 'gt06_heartbeat', io: {}
+                      });
+
+                      if (vehicle_id) {
+                        await db.query(
+                          `INSERT INTO alerts (vehicle_id, alert_type, severity, value, latitude, longitude)
+                           VALUES ($1,$2,$3,$4,$5,$6)`,
+                          [vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
+                            acc ? 1 : 0, lastPos.lat, lastPos.lng]
+                        );
+                        console.log(`🔑 Ignition ${acc ? 'ON' : 'OFF'} — IMEI: ${imei}`);
                       }
-                    } catch (e) {
-                      console.warn(`[GT06] Alarm alert failed — IMEI: ${imei}:`, e.message);
+                    } catch (saveErr) {
+                      console.error('[HB Internal Save Error]:', saveErr.message);
                     }
-                  });
+                  }
+
+                  // 4. Trip Detection (ट्रिप डिटेक्शन)
+                  const cfg = resolveConfig({});
+                  const tripRaw = await redis.get(`trip:active:${device_id}`).catch(e => null);
+                  if (tripRaw) {
+                    const hbData = {
+                      imei, ts: new Date().toISOString(),
+                      latitude: lastPos.lat, longitude: lastPos.lng,
+                      speed_kmh: 0, heading: 0, ignition: acc,
+                      battery_v: null, satellites: null,
+                      protocol: 'gt06_heartbeat', io: {}
+                    };
+                    try { await processTripDetection(device_id, vehicle_id, hbData, cfg); }
+                    catch (e) { console.error('[HB] Trip detection error:', e.message); }
+                  }
+
+                  // 5. Excessive Idle (अत्यधिक आइडल चेतावनी)
+                  if (acc && vehicle_id) {
+                    const gapMin = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
+                    if (gapMin >= cfg.excessiveIdleMinutes) {
+                      const alertedKey = `idle:alerted:${vehicle_id}`;
+                      const alreadyAlerted = await redis.get(alertedKey).catch(e => null);
+                      if (!alreadyAlerted) {
+                        try {
+                          await triggerAlert(vehicle_id, 'excessive_idle', 'warning',
+                            parseFloat(gapMin.toFixed(1)), lastPos.lat, lastPos.lng);
+                          await redis.set(alertedKey, '1', { ex: 3600 }).catch(e => null);
+                          console.log(`⏸️  Excessive idle — Vehicle: ${vehicle_id} | ${gapMin.toFixed(1)} min`);
+                        } catch (alertErr) {
+                          console.error('[HB Idle Alert Error]:', alertErr.message);
+                        }
+                      }
+                    }
+                  }
+
+                  // 6. Live Position Update (लाइव पोजीशन अपडेट)
+                  const gapFromLastGps = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
+                  if (!acc || gapFromLastGps > 2) {
+                    await redis.set(`device:${imei}`, JSON.stringify({
+                      lat: lastPos.lat, lng: lastPos.lng,
+                      speed: 0, heading: 0, ignition: acc,
+                      battery: null, ts: new Date().toISOString()
+                    }), { ex: 300 }).catch(e => null);
+                  }
+
+                } catch (err) {
+                  console.error(`[HB Isolated Catch Error] IMEI: ${imei}:`, err.message);
                 }
-              } else {
-                console.warn(`[GT06] Alarm parse fail — IMEI: ${imei} | content len: ${content.length}`);
-              }
-
-              // ── 7. 0x94 ICCID ─────────────────────────────
-            } else if (proto === 0x94) {
-              const iccid = content.toString('hex');
-              console.log(`📟 ICCID — IMEI: ${imei} | ${iccid}`);
-
-              // ── 8. Unknown proto ───────────────────────────
-            } else {
-              pktCount.other++;
-              console.log(`[GT06] Unknown proto:0x${proto.toString(16).padStart(2, '0')} — IMEI: ${imei} | hex: ${pkt.toString('hex')}`);
+              }, 0);
             }
-
-          }
-          return;
-        }
-
-        if (textMode) {
-          const parsed = parseTextPacket(buf.toString('utf8'));
-          if (parsed) {
-            await savePing(parsed);
-            socket.write('OK\r\n');
-          }
-          buf = Buffer.alloc(0);
-          return;
-        }
-
-        if (!imei) {
-          if (buf.length < 2) return;
-
-          const imeiLen = buf.readUInt16BE(0);
-          if (buf.length < 2 + imeiLen) return;
-
-          const candidate = buf.subarray(2, 2 + imeiLen).toString('ascii');
-          if (imeiLen >= 10 && imeiLen <= 20 && /^\d+$/.test(candidate)) {
-            imei = candidate;
-            buf = buf.subarray(2 + imeiLen);
-            console.log(`🔑 Teltonika IMEI accepted: ${imei} from ${clientIP}`);
-            socket.write(Buffer.from([0x01]));
-          } else {
-            console.warn(`[Teltonika] Invalid IMEI from ${clientIP} — rejecting`);
-            socket.write(Buffer.from([0x00]));
-            //socket.destroy();
-            return;
-          }
-
-          if (buf.length === 0) return;
-        }
-
-        while (buf.length >= 8) {
-          if (buf.readUInt32BE(0) !== 0) {
-            console.warn(`[Teltonika] Bad preamble from ${imei} — dropping 1 byte`);
-            buf = buf.subarray(1);
-            continue;
-          }
-
-          const dataLen = buf.readUInt32BE(4);
-          const totalExpected = 8 + dataLen + 4;
-
-          if (buf.length < totalExpected) break;
-
-          const packet = buf.subarray(0, totalExpected);
-          buf = buf.subarray(totalExpected);
-
-          const result = parseCodec8Extended(packet, imei);
-          if (result) {
-            const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-            console.log(`📦 Data received — IMEI: ${imei} | Records: ${result.numRecords} | Time: ${recvTime}`);
-            for (const record of result.records) {
-              await savePing(record);
-            }
-            const ack = Buffer.allocUnsafe(4);
-            ack.writeUInt32BE(result.numRecords);
-            socket.write(ack);
-            console.log(`✅ ACK ${result.numRecords} record(s) — IMEI: ${imei}`);
-          } else {
-            console.warn(`⚠️  Invalid Codec8Ext packet from ${imei || clientIP}`);
-          }
-        }
-      } finally {
-        // socket.resume();
+          } // while लूप का अंत
+        } // gt06Mode का अंत
+      } catch (globalSocketError) {
+        console.error(`[Global Socket Parser Error]:`, globalSocketError.message);
       }
-    });
+    }); // socket.on('data') का अंत
 
+    // ── 💡 नेटवर्क एरर को म्यूट करें (खड़ी गाड़ी का नॉर्मल डिस्कनेक्शन इग्नोर करें) ──
     socket.on('error', (err) => {
-
-      // ETIMEDOUT / ECONNRESET are normal when a device drops off a mobile network
-      if (err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET') {
-        console.log(`📴 Device dropped (${err.code}): ${imei || clientIP}`);
-      } else {
-        console.error(`❌ Socket error (${imei || clientIP}):`, err.message);
-      }
+      if (err.code === 'ECONNRESET') return; // स्क्रीन पर लाल रंग की एरर आना बंद हो जाएगी
+      console.error(`[-] Real Socket Error from ${clientIP}:`, err.message);
     });
 
-
-
-    socket.on('timeout', () => {
-      console.log(`⏱️  Idle timeout — closing: ${imei || clientIP}`);
-      //socket.destroy();
+    socket.on('close', () => {
+      console.log(`[-] Device disconnected: ${clientIP} | Logs:`, pktCount);
     });
-    /*
-        socket.on('close', () => {
-          if (gt06Mode) {
-            console.log(`📴 Device disconnected: ${imei || clientIP} | Session packets — Login:${pktCount.login} GPS:${pktCount.gps} HB:${pktCount.hb} Alarm:${pktCount.alarm}`);
-          } else {
-            console.log(`📴 Device disconnected: ${imei || clientIP}`);
-          }
-        });
-        */
-    const connectedAt = Date.now();
-    socket.on("close", (hadError) => {
-
-      //  console.log(`❌ CLOSE IMEI:${imei}hadError:${hadError}read:${socket.bytesRead}write:${socket.bytesWritten}`
-      //  );
-      console.log("Connected for", (Date.now() - connectedAt) / 1000, "seconds");
-      if (imei) {
-
-        const c = clients.get(imei);
-
-        if (c && c.socket === socket) {
-          clients.delete(imei);
-        }
-
-      }
-      if (gt06Mode) {
-
-        console.log("========== SOCKET CLOSED ==========");
-        console.log({
-          imei,
-          hadError,
-          bytesRead: socket.bytesRead,
-          bytesWritten: socket.bytesWritten,
-          //destroyed: socket.destroyed,
-          readyState: socket.readyState,
-          remoteAddress: socket.remoteAddress,
-          remotePort: socket.remotePort
-        });
-        console.log(
-          `Login:${pktCount.login} GPS:${pktCount.gps} HB:${pktCount.hb} Alarm:${pktCount.alarm}`
-        );
-
-      } else {
-        console.log(`📴 Device disconnected: ${imei || clientIP}`);
-      }
-
-    });
-
-    socket.setKeepAlive(true, 60000);
-    socket.setNoDelay(true);
-
-    // socket.setKeepAlive(true, 30000);
-    // socket.setTimeout(120_000); // destroy after 2 min of no data
-  });
+  }); // net.createServer का अंत
 
   server.listen(port, () => {
-    console.log(`🛰️  GPS TCP Server running on port ${port} [Teltonika Codec8Ext + GT06N]`);
+    console.log(`🚀 GT06 GPS Service listening perfectly on port ${port}`);
   });
-
-  // Device offline detection: every 5 min, alert if no ping for 15+ min during active trip
-  setInterval(async () => {
-    try {
-      const devices = await db.query(
-        `SELECT d.imei, d.id AS device_id, v.id AS vehicle_id
-         FROM devices d
-         LEFT JOIN vehicles v ON v.device_id = d.id
-         WHERE d.is_active = true AND v.id IS NOT NULL`
-      );
-      for (const { imei, device_id, vehicle_id } of devices.rows) {
-        const lastPingMs = await redis.get(`device:lastping:${imei}`);
-        if (!lastPingMs) continue;
-        const ageMin = (Date.now() - Number(lastPingMs)) / 60000;
-        if (ageMin < 15 || ageMin > 120) continue; // 15–120 min window only
-        const tripRaw = await redis.get(`trip:active:${device_id}`);
-        if (!tripRaw) continue; // no active trip — device just parked, expected offline
-        const rawLastPos = await redis.get(`device:lastpos:${imei}`);
-        const lastPos = rawLastPos
-          ? (typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos)
-          : null;
-        await triggerAlert(vehicle_id, 'device_offline', 'critical',
-          Math.round(ageMin), lastPos?.lat ?? null, lastPos?.lng ?? null);
-      }
-    } catch (err) {
-      console.warn('⚠️  Offline check error:', err.message);
-    }
-  }, 5 * 60_000);
-
-  server.on('error', (err) => {
-    console.error('❌ GPS Server error:', err.message);
-  });
-
-  return server;
 }
+
+
 
 module.exports = { startGPSServer };

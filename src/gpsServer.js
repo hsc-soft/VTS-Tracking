@@ -832,6 +832,8 @@ function startGPSServer(port) {
     const clientIP = socket.remoteAddress;
     console.log(`📡 Device connected: ${clientIP}`);
 
+    socket.setTimeout(0); 
+
     let imei = null;
     let buf = Buffer.alloc(0);
     let textMode = false;
@@ -1433,7 +1435,7 @@ if (Buffer.isBuffer(chunk) && chunk.length >= 10) {
 
     });
 
-    socket.setKeepAlive(true, 10000);
+    socket.setKeepAlive(true, 60000);
     socket.setNoDelay(true);
 
     // socket.setKeepAlive(true, 30000);

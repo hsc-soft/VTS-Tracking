@@ -1102,7 +1102,7 @@ function startGPSServer(port) {
               }
 
               // ── 5. 0x13 Heartbeat ─────────────────────────
-            } else if (proto === 0x13) {
+            } else if (proto === 0x13 || proto===19) {
              // socket.write(Buffer.from([0x78, 0x78, 0x01, 0x00, 0x0D, 0x0A]));
               pktCount.hb++;
               const termInfo = content[0] ?? 0;

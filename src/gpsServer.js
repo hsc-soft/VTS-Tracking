@@ -941,7 +941,7 @@ function startGPSServer(port) {
               console.log(`[ACK SENT] Proto Long: ${protoNum} | Bytes:`, extAck.toString('hex'));
             }
             // 3. अन्य सामान्य Short पैकेट्स के लिए
-            else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(protoNum) || [1, 18, 19, 22, 34].includes(protoNum)) {
+            else if ([0x01, 0x13, 0x16, 0x22].includes(protoNum) || [1, 19, 22, 34].includes(protoNum)) {
               const ack = buildGT06ACK(protoNum, serial);
               socket.write(ack);
               console.log(`[ACK SENT] Proto Short: 0x${protoNum.toString(16)} | Bytes:`, ack.toString('hex'));

@@ -925,14 +925,11 @@ function startGPSServer(port) {
 
             // 1. अगर प्रोटोकॉल 148 (0x94) है, तो इसे जबरन Short ACK भेजें, भले ही पार्सर इसे Long कहे
             if (protoNum === 148 || protoNum === 0x94) {
-              // आपके पार्सर से आ रहे सीरियल नंबर को सुरक्षित रूप से लें
-              const currentSerial = typeof serial !== 'undefined' ? Number(serial) : 0x0001;
+              // GT06N ICCID पैकेट के लिए आधिकारिक 6-byte का रिस्पॉन्स बफर
+              const officialIccidAck = Buffer.from([0x78, 0x78, 0x00, 0x94, 0x0D, 0x0A]);
 
-              // सही सीरियल नंबर के साथ स्टैंडर्ड ACK जेनरेट करें
-              const iccidAck = buildGT06ACK(0x94, currentSerial);
-
-              socket.write(iccidAck);
-              console.log(`[ACK SENT] Proto: 0x94 (ICCID) | Serial: ${currentSerial} | Bytes:`, iccidAck.toString('hex'))
+              socket.write(officialIccidAck);
+              console.log(`[🚀 OFFICIAL ACK SENT] Proto: 0x94 (ICCID) | Bytes: 787800940d0a`);
             }
             // 2. बाकी के बचे हुए Long पैकेट्स के लिए (जैसे 0x80 आदि)
             else if (isLong) {
@@ -1070,20 +1067,6 @@ function startGPSServer(port) {
               const voltLevel = content[1] ?? '?';
               const signal = content[2] ?? '?';
               const hbTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-              console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'}`);
-
-
-              // ⚠️ टेस्ट करने के लिए: पुराना सारा setImmediate, redis, db.query वाला लॉजिक यहाँ रोक दें (Comment out कर दें)
-              // इससे हमें पता चल जाएगा कि सॉकेट कोड की वजह से गिर रहा है या डेटाबेस लॉजिक से।
-
-              /*
-              pktCount.hb++;
-              const termInfo = content[0] ?? 0;
-              const gpsFix = !!(termInfo & 0x40);
-              const acc = !!(termInfo & 0x02);
-              const voltLevel = content[1] ?? '?';
-              const signal = content[2] ?? '?';
-              const hbTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
               console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
 
               setImmediate(async () => {
@@ -1175,8 +1158,6 @@ function startGPSServer(port) {
                   console.error(`[HB] Error — IMEI: ${imei}:`, err.message);
                 }
               });
-
-              */
 
               // ── 6. 0x16 Alarm ─────────────────────────────
             } else if (proto === 0x16) {

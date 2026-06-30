@@ -955,12 +955,7 @@ function startGPSServer(port) {
 
                 socket.write(dynamicAck);
                 console.log(`[🚀 DYNAMIC ACK SENT] Proto: 0x${protoNum.toString(16)} | Bytes:`, dynamicAck.toString('hex'));
-                if (protoNum === 0x01) {
-                  // जहाँ आपका Login (0x01) का ACK जा रहा है, ठीक उसके नीचे यह 1 लाइन जोड़ें:
-                  socket.write(Buffer.from([0x78, 0x78, 0x05, 0x16, 0x00, 0x01, 0x00, 0x00, 0x0D, 0x0A]));
-                  console.log("[🎯 INFO] Sent Login Confirmation Protocol (0x16) to force device stay active");
-
-                }
+                
               }
 
               // 3. Long पैकेट्स के लिए पुराना बैकअप

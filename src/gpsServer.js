@@ -922,6 +922,43 @@ function startGPSServer(port) {
 
             // ── ACK DISPATCH FIX ───────────────────────────
 
+
+            // ── 🚀 ARCHITECTURAL COLLISION FIX (THE FINAL WEAPON) ──────────────────
+const protoNum = Number(proto);
+
+if (Buffer.isBuffer(chunk) && chunk.length >= 10) {
+  
+  if ([0x01, 0x13, 0x16, 0x22, 0x94, 148].includes(protoNum)) {
+    
+    const serialH = chunk[chunk.length - 6];
+    const serialL = chunk[chunk.length - 5];
+    const crcH    = chunk[chunk.length - 4];
+    const crcL    = chunk[chunk.length - 3];
+    const actualProto = (protoNum === 148) ? 0x94 : protoNum;
+
+    const dynamicAck = Buffer.from([
+      0x78, 0x78,
+      0x05,
+      actualProto,
+      serialH, serialL,
+      crcH, crcL,
+      0x0D, 0x0A
+    ]);
+
+    // 🎯 मुख्य सुधार: सॉकेट पर डेटा लिखने के बाद बफ़र फ्लश होने का इंतज़ार करें
+    socket.write(dynamicAck, 'binary', () => {
+        // यह कॉलबैक तब चलता है जब डेटा वास्तव में नेटवर्क पर डिवाइस के लिए रवाना हो जाता है
+        console.log(`[🟢 FLUSHED TO WIRE] ACK for 0x${actualProto.toString(16)} successfully sent and buffer cleared.`);
+    });
+  }
+  else if (isLong) {
+    const extAck = buildGT06ExtACK(proto, serial);
+    socket.write(extAck, 'binary', () => {});
+  }
+}
+
+
+            /*
             // ── 🚀 FINAL DYNAMIC ACK DISPATCH (SUPER STABLE) ──────────────────
             const protoNum = Number(proto);
 
@@ -960,6 +997,7 @@ function startGPSServer(port) {
               }
             }
 
+            */
 
             /*
             const protoNum = Number(proto);

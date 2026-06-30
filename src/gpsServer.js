@@ -1068,7 +1068,7 @@ function startGPSServer(port) {
               const signal = content[2] ?? '?';
               const hbTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
               console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
-
+/*
               setImmediate(async () => {
                 try {
                   if (!imei) return;
@@ -1158,7 +1158,7 @@ function startGPSServer(port) {
                   console.error(`[HB] Error — IMEI: ${imei}:`, err.message);
                 }
               });
-
+*/
               // ── 6. 0x16 Alarm ─────────────────────────────
             } else if (proto === 0x16) {
               pktCount.alarm++;

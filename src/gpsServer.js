@@ -922,49 +922,44 @@ function startGPSServer(port) {
 
             // ── ACK DISPATCH FIX ───────────────────────────
 
-            // ── 🚀 DYNAMIC RAW BUFFER ACK DISPATCH (SUPER FIX) ──────────────────
+            // ── 🚀 FINAL DYNAMIC ACK DISPATCH (SUPER STABLE) ──────────────────
             const protoNum = Number(proto);
 
-            // नोट: सुनिश्चित करें कि 'rawBuffer' या 'data' (जो भी आपके socket.on('data', (buf) => ...) का बफर वेरिएबल है) यहाँ उपलब्ध हो।
-            // मान लेते हैं आपके इनकमिंग बफ़र वेरिएबल का नाम 'rawBuffer' है:
-            if (Buffer.isBuffer(chunk) && chunk.length >= 10) {
+            if (Buffer.isBuffer(rawBuffer) && rawBuffer.length >= 10) {
 
-              // 1. 0x94 (ICCID) के लिए ऑफिशियल 6-byte का ACK भेजें
-              if (protoNum === 148 || protoNum === 0x94) {
-                const iccidOfficialAck = Buffer.from([0x78, 0x78, 0x00, 0x94, 0x0D, 0x0A]);
-                socket.write(iccidOfficialAck);
-                console.log(`[🚀 ACK SENT] Proto: 0x94 (ICCID) | Bytes: 787800940d0a`);
-              }
+              // 1. Login (0x01), Heartbeat (0x13), और ICCID (0x94) तीनों के लिए डायनेमिक ACK
+              if ([0x01, 0x13, 0x16, 0x22, 0x94, 148].includes(protoNum)) {
 
-              // 2. Login (0x01) और Heartbeat (0x13) के लिए डायनेमिक ACK
-              else if ([0x01, 0x13, 0x16, 0x22].includes(protoNum)) {
-                // डिवाइस द्वारा भेजे गए मूल पैकेट के आखरी हिस्सों से सटीक Serial (2 bytes) और CRC (2 bytes) निकालें
-                const serialH = chunk[chunk.length - 6];
-                const serialL = chunk[chunk.length - 5];
-                const crcH = chunk[chunk.length - 4];
-                const crcL = chunk[chunk.length - 3];
+                // पैकेट के आखरी हिस्सों से डिवाइस का असली Serial और CRC काटें
+                const serialH = rawBuffer[rawBuffer.length - 6];
+                const serialL = rawBuffer[rawBuffer.length - 5];
+                const crcH = rawBuffer[rawBuffer.length - 4];
+                const crcL = rawBuffer[rawBuffer.length - 3];
+
+                // पैकेट टाइप तय करें (अगर 148 या 0x94 है तो भी सही हेक्स वैल्यू 0x94 ही जाएगी)
+                const actualProto = (protoNum === 148) ? 0x94 : protoNum;
 
                 const dynamicAck = Buffer.from([
                   0x78, 0x78,       // Start Bits
                   0x05,             // Length
-                  protoNum,         // Protocol Number (0x01 या 0x13)
+                  actualProto,      // Protocol Number
                   serialH, serialL, // डिवाइस का अपना भेजा हुआ असली सीरियल नंबर
                   crcH, crcL,       // डिवाइस का अपना भेजा हुआ असली CRC
                   0x0D, 0x0A        // Stop Bits
                 ]);
 
                 socket.write(dynamicAck);
-                console.log(`[🚀 DYNAMIC ACK SENT] Proto: 0x${protoNum.toString(16)} | Bytes:`, dynamicAck.toString('hex'));
-                
+                console.log(`[🚀 DYNAMIC ACK SENT] Proto: 0x${actualProto.toString(16)} | Bytes:`, dynamicAck.toString('hex'));
               }
 
-              // 3. Long पैकेट्स के लिए पुराना बैकअप
+              // 2. Long पैकेट्स के लिए बैकअप
               else if (isLong) {
                 const extAck = buildGT06ExtACK(proto, serial);
                 socket.write(extAck);
                 console.log(`[ACK SENT] Proto Long: ${protoNum}`);
               }
             }
+
 
             /*
             const protoNum = Number(proto);

@@ -925,9 +925,32 @@ function startGPSServer(port) {
 
             // 1. अगर प्रोटोकॉल 148 (0x94) है, तो इसे जबरन Short ACK भेजें, भले ही पार्सर इसे Long कहे
             if (protoNum === 148 || protoNum === 0x94) {
-              const ack = buildGT06ACK(0x94, serial); // आपका स्टैंडर्ड ACK फंक्शन
-              socket.write(ack);
-              console.log(`[ACK SENT] Proto: 0x94 (ICCID) | Bytes:`, ack.toString('hex'));
+              // नोट: 'data' यहाँ वह raw Buffer होना चाहिए जो सॉकेट से सीधे मिला है (e.g., socket.on('data', (data) => ...))
+              if (Buffer.isBuffer(data) && data.length >= 10) {
+
+                // ICCID पैकेट के आखरी 6 बाइट्स में सीरियल नंबर और CRC होता है
+                // हम सीधे डिवाइस के भेजे गए पैकेट से ही Serial और CRC उठाकर उसे जवाब दे रहे हैं
+                const serialH = data[data.length - 6];
+                const serialL = data[data.length - 5];
+                const crcH = data[data.length - 4];
+                const crcL = data[data.length - 3];
+
+                const perfectIccidAck = Buffer.from([
+                  0x78, 0x78, // Start
+                  0x05,       // Length
+                  0x94,       // Protocol
+                  serialH, serialL, // डिवाइस का अपना सीरियल नंबर
+                  crcH, crcL,       // डिवाइस का अपना CRC
+                  0x0D, 0x0A  // Stop
+                ]);
+
+                socket.write(perfectIccidAck);
+                console.log(`[🚀 PERFECT ACK SENT] Proto: 0x94 | Bytes:`, perfectIccidAck.toString('hex'));
+              } else {
+                // अगर किसी वजह से raw data उपलब्ध नहीं है, तो पुराना तरीका बैकअप रहेगा
+                const ack = buildGT06ACK(0x94, serial);
+                socket.write(ack);
+              }
             }
             // 2. बाकी के बचे हुए Long पैकेट्स के लिए (जैसे 0x80 आदि)
             else if (isLong) {

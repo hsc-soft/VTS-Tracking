@@ -927,7 +927,7 @@ function startGPSServer(port) {
 
             // नोट: सुनिश्चित करें कि 'rawBuffer' या 'data' (जो भी आपके socket.on('data', (buf) => ...) का बफर वेरिएबल है) यहाँ उपलब्ध हो।
             // मान लेते हैं आपके इनकमिंग बफ़र वेरिएबल का नाम 'rawBuffer' है:
-            if (Buffer.isBuffer(rawBuffer) && rawBuffer.length >= 10) {
+            if (Buffer.isBuffer(chunk) && chunk.length >= 10) {
 
               // 1. 0x94 (ICCID) के लिए ऑफिशियल 6-byte का ACK भेजें
               if (protoNum === 148 || protoNum === 0x94) {
@@ -939,10 +939,10 @@ function startGPSServer(port) {
               // 2. Login (0x01) और Heartbeat (0x13) के लिए डायनेमिक ACK
               else if ([0x01, 0x13, 0x16, 0x22].includes(protoNum)) {
                 // डिवाइस द्वारा भेजे गए मूल पैकेट के आखरी हिस्सों से सटीक Serial (2 bytes) और CRC (2 bytes) निकालें
-                const serialH = rawBuffer[rawBuffer.length - 6];
-                const serialL = rawBuffer[rawBuffer.length - 5];
-                const crcH = rawBuffer[rawBuffer.length - 4];
-                const crcL = rawBuffer[rawBuffer.length - 3];
+                const serialH = chunk[chunk.length - 6];
+                const serialL = chunk[chunk.length - 5];
+                const crcH = chunk[chunk.length - 4];
+                const crcL = chunk[chunk.length - 3];
 
                 const dynamicAck = Buffer.from([
                   0x78, 0x78,       // Start Bits

@@ -925,16 +925,16 @@ function startGPSServer(port) {
             // ── 🚀 FINAL DYNAMIC ACK DISPATCH (SUPER STABLE) ──────────────────
             const protoNum = Number(proto);
 
-            if (Buffer.isBuffer(rawBuffer) && rawBuffer.length >= 10) {
+            if (Buffer.isBuffer(chunk) && chunk.length >= 10) {
 
               // 1. Login (0x01), Heartbeat (0x13), और ICCID (0x94) तीनों के लिए डायनेमिक ACK
               if ([0x01, 0x13, 0x16, 0x22, 0x94, 148].includes(protoNum)) {
 
                 // पैकेट के आखरी हिस्सों से डिवाइस का असली Serial और CRC काटें
-                const serialH = rawBuffer[rawBuffer.length - 6];
-                const serialL = rawBuffer[rawBuffer.length - 5];
-                const crcH = rawBuffer[rawBuffer.length - 4];
-                const crcL = rawBuffer[rawBuffer.length - 3];
+                const serialH = chunk[chunk.length - 6];
+                const serialL = chunk[chunk.length - 5];
+                const crcH = chunk[chunk.length - 4];
+                const crcL = chunk[chunk.length - 3];
 
                 // पैकेट टाइप तय करें (अगर 148 या 0x94 है तो भी सही हेक्स वैल्यू 0x94 ही जाएगी)
                 const actualProto = (protoNum === 148) ? 0x94 : protoNum;

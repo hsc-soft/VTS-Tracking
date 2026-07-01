@@ -923,7 +923,7 @@ function startGPSServer(port) {
             if (pkt.length >= 10) {
 
               // 0x01, 0x13, 0x16, 0x22, 0x94 पैकेट्स के लिए रिस्पॉन्स
-              if ([0x01, 0x16, 0x22, 0x94, 148].includes(protoNum)) {
+              if ([0x01, 0x13, 0x16, 0x22, 0x94, 148].includes(protoNum)) {
 
                 // बिल्कुल सही पैकेट (pkt) के अंत से सीरियल और CRC काटें
                 const serialH = pkt[pkt.length - 6];

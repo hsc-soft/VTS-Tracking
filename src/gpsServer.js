@@ -988,7 +988,7 @@ function startGPSServer(port) {
 
                       // setTimeout(..., 0) हैवी डेटाबेस टास्क को लूप ब्लॉक से मुक्त रखता है
                       setTimeout(async () => {
-                        try { await savePing(data); }
+                        try { savePing(data); }
                         catch (err) { console.error('[Safe DB Catch] Buffered savePing Error:', err.message); }
                       }, 0);
                     } else {
@@ -1014,7 +1014,7 @@ function startGPSServer(port) {
 
                     // सॉकेट थ्रेड को फ्री रखने के लिए एसिंक्रोनस आइसोलेशन
                     setTimeout(async () => {
-                      try { await savePing(data); }
+                      try { savePing(data); }
                       catch (err) { console.error('[Safe DB Catch] Realtime savePing Error:', err.message); }
                     }, 0);
                   } else {

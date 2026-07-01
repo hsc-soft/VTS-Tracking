@@ -954,205 +954,206 @@ function startGPSServer(port) {
                 socket.write(extAck, 'binary', () => { });
               }
 
+            }
 
-              // ── इसके नीचे का कोड आपके Part 2 में आएगा ──────────────────
-              // ── PART 2: PROTOCOL ROUTING & PARSING ───────────────────────────
-              if (proto === 0x01) {
-                pktCount.login++;
-                imei = decodeGT06IMEI(content.subarray(0, 8));
-                clients.set(imei, { socket, lastSeen: Date.now() });
-                console.log(`🔑 Login — IMEI: ${imei} | IP: ${clientIP}`);
+            // ── इसके नीचे का कोड आपके Part 2 में आएगा ──────────────────
+            // ── PART 2: PROTOCOL ROUTING & PARSING ───────────────────────────
+            if (proto === 0x01) {
+              pktCount.login++;
+              imei = decodeGT06IMEI(content.subarray(0, 8));
+              clients.set(imei, { socket, lastSeen: Date.now() });
+              console.log(`🔑 Login — IMEI: ${imei} | IP: ${clientIP}`);
 
-                // ── 0x12 / 0x22 GPS LOCATION PACKETS ──────────────────────────
-              } else if (proto === 0x12 || proto === 0x22) {
-                pktCount.gps++;
+              // ── 0x12 / 0x22 GPS LOCATION PACKETS ──────────────────────────
+            } else if (proto === 0x12 || proto === 0x22) {
+              pktCount.gps++;
 
-                const maybeCount = content[0];
-                const isMultiRecord = proto === 0x22 ||
-                  (maybeCount >= 1 && maybeCount <= 20 && content.length === 1 + maybeCount * 18);
+              const maybeCount = content[0];
+              const isMultiRecord = proto === 0x22 ||
+                (maybeCount >= 1 && maybeCount <= 20 && content.length === 1 + maybeCount * 18);
 
-                if (isMultiRecord) {
-                  const recordCount = maybeCount;
-                  console.log(`📦 Buffered GPS — IMEI: ${imei} | Records: ${recordCount}`);
+              if (isMultiRecord) {
+                const recordCount = maybeCount;
+                console.log(`📦 Buffered GPS — IMEI: ${imei} | Records: ${recordCount}`);
 
-                  for (let i = 0; i < recordCount; i++) {
-                    const recordStart = 1 + i * 18;
-                    if (recordStart + 18 > content.length) break;
+                for (let i = 0; i < recordCount; i++) {
+                  const recordStart = 1 + i * 18;
+                  if (recordStart + 18 > content.length) break;
 
-                    const record = content.subarray(recordStart, recordStart + 18);
+                  const record = content.subarray(recordStart, recordStart + 18);
 
-                    // पूरे पार्सिंग और डेटाबेस ऑपरेशन को मुख्य सॉकेट थ्रेड से अलग करें
-                    try {
-                      const data = parseGT06GPS(record, imei);
-                      if (data) {
-                        data.protocol = 'gt06_buffered';
-                        const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                        console.log(`  ↳ Record ${i + 1}/${recordCount} | Time: ${gpsTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
-
-                        // setTimeout(..., 0) हैवी डेटाबेस टास्क को लूप ब्लॉक से मुक्त रखता है
-                        setTimeout(async () => {
-                          try { savePing(data); }
-                          catch (err) { console.error('[Safe DB Catch] Buffered savePing Error:', err.message); }
-                        }, 200);
-                      } else {
-                        console.warn(`[GT06] Buffered record ${i + 1} parse fail — hex: ${record.toString('hex')}`);
-                      }
-                    } catch (parseInnerErr) {
-                      console.error(`[GT06 Exception Handled] Buffered loop bypass:`, parseInnerErr.message);
-                    }
-                  }
-                } else {
-                  // Single real-time record (रियल-टाइम लोकेशन)
+                  // पूरे पार्सिंग और डेटाबेस ऑपरेशन को मुख्य सॉकेट थ्रेड से अलग करें
                   try {
-                    const data = parseGT06GPS(content, imei);
+                    const data = parseGT06GPS(record, imei);
                     if (data) {
-                      const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                      data.protocol = 'gt06_buffered';
                       const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                      const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
+                      console.log(`  ↳ Record ${i + 1}/${recordCount} | Time: ${gpsTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
 
-                      if (pktCount.gps === 1) {
-                        console.log(`🚗 Movement — IMEI: ${imei} | GPS time: ${gpsTime} | Delay: ${delayMin} min`);
-                      }
-                      console.log(`📍 GPS record — IMEI: ${imei} | Time: ${recvTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
-
-                      // सॉकेट थ्रेड को फ्री रखने के लिए एसिंक्रोनस आइसोलेशन
+                      // setTimeout(..., 0) हैवी डेटाबेस टास्क को लूप ब्लॉक से मुक्त रखता है
                       setTimeout(async () => {
                         try { savePing(data); }
-                        catch (err) { console.error('[Safe DB Catch] Realtime savePing Error:', err.message); }
+                        catch (err) { console.error('[Safe DB Catch] Buffered savePing Error:', err.message); }
                       }, 200);
                     } else {
-                      console.warn(`[GT06] GPS parse fail — IMEI: ${imei} | hex: ${content.toString('hex')}`);
+                      console.warn(`[GT06] Buffered record ${i + 1} parse fail — hex: ${record.toString('hex')}`);
                     }
-                  } catch (realtimeParseErr) {
-                    console.error('[GT06 Exception Handled] Realtime parse bypass:', realtimeParseErr.message);
+                  } catch (parseInnerErr) {
+                    console.error(`[GT06 Exception Handled] Buffered loop bypass:`, parseInnerErr.message);
                   }
                 }
+              } else {
+                // Single real-time record (रियल-टाइम लोकेशन)
+                try {
+                  const data = parseGT06GPS(content, imei);
+                  if (data) {
+                    const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                    const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                    const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
 
-                // ── इसके नीचे आपका अगला पार्ट (Heartbeat 0x13 और बाकी कंडीशंस) आएगा ──
-                // ── PART 3: 0x13 HEARTBEAT PACKET ROUTING ────────────────────────
-              } else if (proto === 0x13 || proto === 19) {
-                pktCount.hb++;
-
-                const termInfo = content[0] ?? 0;
-                const gpsFix = !!(termInfo & 0x40);
-                const acc = !!(termInfo & 0x02);
-                const voltLevel = content[1] ?? '?';
-                const signal = content[2] ?? '?';
-                const hbTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-
-                console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
-
-                // ── डेटाबेस और रेडिस का भारी काम सुरक्षित थ्रेड में वापस शुरू (Uncommented & Secured) ──
-                setTimeout(async () => {
-                  try {
-                    if (!imei) return;
-
-                    // 1. रेडिस पिंग अपडेट (सुरक्षित कैच के साथ)
-                    await redis.set(`device:lastping:${imei}`, Date.now().toString(), { ex: 7200 }).catch(e => null);
-
-                    const rawLastPos = await redis.get(`device:lastpos:${imei}`).catch(e => null);
-                    if (!rawLastPos) {
-                      console.log(`[HB] No lastpos for ${imei} — skipping DB operations safely`);
-                      return;
+                    if (pktCount.gps === 1) {
+                      console.log(`🚗 Movement — IMEI: ${imei} | GPS time: ${gpsTime} | Delay: ${delayMin} min`);
                     }
+                    console.log(`📍 GPS record — IMEI: ${imei} | Time: ${recvTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
 
-                    const lastPos = typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos;
+                    // सॉकेट थ्रेड को फ्री रखने के लिए एसिंक्रोनस आइसोलेशन
+                    setTimeout(async () => {
+                      try { savePing(data); }
+                      catch (err) { console.error('[Safe DB Catch] Realtime savePing Error:', err.message); }
+                    }, 200);
+                  } else {
+                    console.warn(`[GT06] GPS parse fail — IMEI: ${imei} | hex: ${content.toString('hex')}`);
+                  }
+                } catch (realtimeParseErr) {
+                  console.error('[GT06 Exception Handled] Realtime parse bypass:', realtimeParseErr.message);
+                }
+              }
 
-                    // 2. डेटाबेस क्वेरी
-                    const devRes = await db.query(
-                      `SELECT d.id AS device_id, v.id AS vehicle_id
+              // ── इसके नीचे आपका अगला पार्ट (Heartbeat 0x13 और बाकी कंडीशंस) आएगा ──
+              // ── PART 3: 0x13 HEARTBEAT PACKET ROUTING ────────────────────────
+            } else if (proto === 0x13 || proto === 19) {
+              pktCount.hb++;
+
+              const termInfo = content[0] ?? 0;
+              const gpsFix = !!(termInfo & 0x40);
+              const acc = !!(termInfo & 0x02);
+              const voltLevel = content[1] ?? '?';
+              const signal = content[2] ?? '?';
+              const hbTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+
+              console.log(`💓 Heartbeat — IMEI: ${imei} | GPS: ${gpsFix ? 'Fix✅' : 'No Fix❌'} | ACC: ${acc ? 'ON' : 'OFF'} | Signal: ${signal} | Volt: ${voltLevel} | Time: ${hbTime}`);
+
+              // ── डेटाबेस और रेडिस का भारी काम सुरक्षित थ्रेड में वापस शुरू (Uncommented & Secured) ──
+              setTimeout(async () => {
+                try {
+                  if (!imei) return;
+
+                  // 1. रेडिस पिंग अपडेट (सुरक्षित कैच के साथ)
+                  await redis.set(`device:lastping:${imei}`, Date.now().toString(), { ex: 7200 }).catch(e => null);
+
+                  const rawLastPos = await redis.get(`device:lastpos:${imei}`).catch(e => null);
+                  if (!rawLastPos) {
+                    console.log(`[HB] No lastpos for ${imei} — skipping DB operations safely`);
+                    return;
+                  }
+
+                  const lastPos = typeof rawLastPos === 'string' ? JSON.parse(rawLastPos) : rawLastPos;
+
+                  // 2. डेटाबेस क्वेरी
+                  const devRes = await db.query(
+                    `SELECT d.id AS device_id, v.id AS vehicle_id
                      FROM devices d LEFT JOIN vehicles v ON v.device_id = d.id
                      WHERE d.imei = $1 AND d.is_active = true`, [imei]
-                    ).catch(e => { console.error('[HB DB Query Error]:', e.message); return { rows: [] }; });
+                  ).catch(e => { console.error('[HB DB Query Error]:', e.message); return { rows: [] }; });
 
-                    if (!devRes || !devRes.rows || !devRes.rows.length) return;
-                    const { device_id, vehicle_id } = devRes.rows[0];
+                  if (!devRes || !devRes.rows || !devRes.rows.length) return;
+                  const { device_id, vehicle_id } = devRes.rows[0];
 
-                    // 3. Ignition State Change (इग्निशन स्थिति में बदलाव)
-                    const prevAccRaw = await redis.get(`device:acc:${imei}`).catch(e => null);
-                    const prevAcc = prevAccRaw === 'on';
+                  // 3. Ignition State Change (इग्निशन स्थिति में बदलाव)
+                  const prevAccRaw = await redis.get(`device:acc:${imei}`).catch(e => null);
+                  const prevAcc = prevAccRaw === 'on';
 
-                    if (acc !== prevAcc) {
-                      await redis.set(`device:acc:${imei}`, acc ? 'on' : 'off', { ex: 86400 }).catch(e => null);
+                  if (acc !== prevAcc) {
+                    await redis.set(`device:acc:${imei}`, acc ? 'on' : 'off', { ex: 86400 }).catch(e => null);
 
-                      try {
-                        await savePing({
-                          imei, ts: new Date().toISOString(),
-                          latitude: lastPos.lat, longitude: lastPos.lng,
-                          speed_kmh: 0, heading: 0, ignition: acc,
-                          battery_v: null, satellites: null, altitude: 0,
-                          protocol: 'gt06_heartbeat', io: {}
-                        });
-
-                        if (vehicle_id) {
-                          await db.query(
-                            `INSERT INTO alerts (vehicle_id, alert_type, severity, value, latitude, longitude)
-                           VALUES ($1,$2,$3,$4,$5,$6)`,
-                            [vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
-                              acc ? 1 : 0, lastPos.lat, lastPos.lng]
-                          );
-                          console.log(`🔑 Ignition ${acc ? 'ON' : 'OFF'} — IMEI: ${imei}`);
-                        }
-                      } catch (saveErr) {
-                        console.error('[HB Internal Save Error]:', saveErr.message);
-                      }
-                    }
-
-                    // 4. Trip Detection (ट्रिप डिटेक्शन)
-                    const cfg = resolveConfig({});
-                    const tripRaw = await redis.get(`trip:active:${device_id}`).catch(e => null);
-                    if (tripRaw) {
-                      const hbData = {
+                    try {
+                      await savePing({
                         imei, ts: new Date().toISOString(),
                         latitude: lastPos.lat, longitude: lastPos.lng,
                         speed_kmh: 0, heading: 0, ignition: acc,
-                        battery_v: null, satellites: null,
+                        battery_v: null, satellites: null, altitude: 0,
                         protocol: 'gt06_heartbeat', io: {}
-                      };
-                      try { await processTripDetection(device_id, vehicle_id, hbData, cfg); }
-                      catch (e) { console.error('[HB] Trip detection error:', e.message); }
-                    }
+                      });
 
-                    // 5. Excessive Idle (अत्यधिक आइडल चेतावनी)
-                    if (acc && vehicle_id) {
-                      const gapMin = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
-                      if (gapMin >= cfg.excessiveIdleMinutes) {
-                        const alertedKey = `idle:alerted:${vehicle_id}`;
-                        const alreadyAlerted = await redis.get(alertedKey).catch(e => null);
-                        if (!alreadyAlerted) {
-                          try {
-                            await triggerAlert(vehicle_id, 'excessive_idle', 'warning',
-                              parseFloat(gapMin.toFixed(1)), lastPos.lat, lastPos.lng);
-                            await redis.set(alertedKey, '1', { ex: 3600 }).catch(e => null);
-                            console.log(`⏸️  Excessive idle — Vehicle: ${vehicle_id} | ${gapMin.toFixed(1)} min`);
-                          } catch (alertErr) {
-                            console.error('[HB Idle Alert Error]:', alertErr.message);
-                          }
+                      if (vehicle_id) {
+                        await db.query(
+                          `INSERT INTO alerts (vehicle_id, alert_type, severity, value, latitude, longitude)
+                           VALUES ($1,$2,$3,$4,$5,$6)`,
+                          [vehicle_id, acc ? 'ignition_on' : 'ignition_off', 'info',
+                            acc ? 1 : 0, lastPos.lat, lastPos.lng]
+                        );
+                        console.log(`🔑 Ignition ${acc ? 'ON' : 'OFF'} — IMEI: ${imei}`);
+                      }
+                    } catch (saveErr) {
+                      console.error('[HB Internal Save Error]:', saveErr.message);
+                    }
+                  }
+
+                  // 4. Trip Detection (ट्रिप डिटेक्शन)
+                  const cfg = resolveConfig({});
+                  const tripRaw = await redis.get(`trip:active:${device_id}`).catch(e => null);
+                  if (tripRaw) {
+                    const hbData = {
+                      imei, ts: new Date().toISOString(),
+                      latitude: lastPos.lat, longitude: lastPos.lng,
+                      speed_kmh: 0, heading: 0, ignition: acc,
+                      battery_v: null, satellites: null,
+                      protocol: 'gt06_heartbeat', io: {}
+                    };
+                    try { await processTripDetection(device_id, vehicle_id, hbData, cfg); }
+                    catch (e) { console.error('[HB] Trip detection error:', e.message); }
+                  }
+
+                  // 5. Excessive Idle (अत्यधिक आइडल चेतावनी)
+                  if (acc && vehicle_id) {
+                    const gapMin = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
+                    if (gapMin >= cfg.excessiveIdleMinutes) {
+                      const alertedKey = `idle:alerted:${vehicle_id}`;
+                      const alreadyAlerted = await redis.get(alertedKey).catch(e => null);
+                      if (!alreadyAlerted) {
+                        try {
+                          await triggerAlert(vehicle_id, 'excessive_idle', 'warning',
+                            parseFloat(gapMin.toFixed(1)), lastPos.lat, lastPos.lng);
+                          await redis.set(alertedKey, '1', { ex: 3600 }).catch(e => null);
+                          console.log(`⏸️  Excessive idle — Vehicle: ${vehicle_id} | ${gapMin.toFixed(1)} min`);
+                        } catch (alertErr) {
+                          console.error('[HB Idle Alert Error]:', alertErr.message);
                         }
                       }
                     }
-
-                    // 6. Live Position Update (लाइव पोजीशन अपडेट)
-                    const gapFromLastGps = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
-                    if (!acc || gapFromLastGps > 2) {
-                      await redis.set(`device:${imei}`, JSON.stringify({
-                        lat: lastPos.lat, lng: lastPos.lng,
-                        speed: 0, heading: 0, ignition: acc,
-                        battery: null, ts: new Date().toISOString()
-                      }), { ex: 300 }).catch(e => null);
-                    }
-
-                  } catch (err) {
-                    console.error(`[HB Isolated Catch Error] IMEI: ${imei}:`, err.message);
                   }
-                }, 0);
-              }
-            } // while लूप का अंत
-          } // gt06Mode का अंत
-        } catch (globalSocketError) {
-          console.error(`[Global Socket Parser Error]:`, globalSocketError.message);
-        }
-      }); // socket.on('data') का अंत
+
+                  // 6. Live Position Update (लाइव पोजीशन अपडेट)
+                  const gapFromLastGps = (Date.now() - new Date(lastPos.ts).getTime()) / 60000;
+                  if (!acc || gapFromLastGps > 2) {
+                    await redis.set(`device:${imei}`, JSON.stringify({
+                      lat: lastPos.lat, lng: lastPos.lng,
+                      speed: 0, heading: 0, ignition: acc,
+                      battery: null, ts: new Date().toISOString()
+                    }), { ex: 300 }).catch(e => null);
+                  }
+
+                } catch (err) {
+                  console.error(`[HB Isolated Catch Error] IMEI: ${imei}:`, err.message);
+                }
+              }, 0);
+            }
+          } // while लूप का अंत
+        } // gt06Mode का अंत
+      } catch (globalSocketError) {
+        console.error(`[Global Socket Parser Error]:`, globalSocketError.message);
+      }
+    }); // socket.on('data') का अंत
 
     // ── 💡 नेटवर्क एरर को म्यूट करें (खड़ी गाड़ी का नॉर्मल डिस्कनेक्शन इग्नोर करें) ──
     socket.on('error', (err) => {

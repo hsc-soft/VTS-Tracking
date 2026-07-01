@@ -922,7 +922,7 @@ function startGPSServer(port) {
             // हमेशा कटे हुए सिंगल पैकेट 'pkt' का आकार जांचें, पूरे 'chunk' का नहीं
             if (pkt.length >= 10) {
 
-              if ([0x01, 0x13, 19, 0x16, 0x22, 0x94, 148].includes(protoNum)) {
+              if ([0x01, 0x13, 19, 0x16].includes(protoNum)) {
 
                 // बिल्कुल सही पैकेट (pkt) के अंत से सीरियल और CRC काटें
                 const serialH = pkt[pkt.length - 6];

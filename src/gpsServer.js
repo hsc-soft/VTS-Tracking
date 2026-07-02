@@ -869,6 +869,8 @@ function startGPSServer(port) {
         if (gt06Mode) {
           while (buf.length >= 6) {
 
+            console.log("buf", buf.toString('hex'));
+
             // ── 1. Packet type detect ──────────────────────
             const isShort = buf[0] === 0x78 && buf[1] === 0x78;
             const isLong = buf[0] === 0x79 && buf[1] === 0x79;

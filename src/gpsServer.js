@@ -834,8 +834,8 @@ function startGPSServer(port) {
 
     // सर्वर साइड टाइमआउट और कीप-अलाइव को एकदम परफेक्ट सेट करें
     socket.setTimeout(0);
-    socket.setKeepAlive(true, 15000);
     socket.setNoDelay(true);
+    socket.setKeepAlive(true, 5000);
 
     let imei = null;
     let buf = Buffer.alloc(0);

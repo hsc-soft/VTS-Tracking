@@ -919,44 +919,45 @@ function startGPSServer(port) {
             }
 
             // ── 7. 🚀 ARCHITECTURAL COLLISION FIX (100% FIXED) ──────────────────
+            // ── G. 🚀 सुपर-फ़ास्ट डायनेमिक रिस्पॉन्स (0x22 ACK ALWAYS ON TO CLEAR MEMORY) ──
             const protoNum = Number(proto);
 
-            // हमेशा कटे हुए सिंगल पैकेट 'pkt' का आकार जांचें, पूरे 'chunk' का नहीं
             if (pkt.length >= 10) {
 
-              if ([0x01, 0x13, 19, 0x16].includes(protoNum)) {
+              // 🎯 मुख्य सुधार: हमने इस लिस्ट में 0x22 और 34 को वापस जोड़ दिया है!
+              // अब जैसे ही डिवाइस 26 बफ़र रिकॉर्ड भेजेगी, सर्वर तुरंत उसे 0x22 का ACK लौटा देगा।
+              if ([0x01, 0x13, 19, 0x16, 0x22, 34, 0x94, 148].includes(protoNum)) {
 
-                // बिल्कुल सही पैकेट (pkt) के अंत से सीरियल और CRC काटें
                 const serialH = pkt[pkt.length - 6];
                 const serialL = pkt[pkt.length - 5];
                 const crcH = pkt[pkt.length - 4];
                 const crcL = pkt[pkt.length - 3];
 
-                // प्रोटोकॉल नंबर को फिक्स करें
                 let actualProto = protoNum;
                 if (protoNum === 19) actualProto = 0x13;
+                if (protoNum === 34) actualProto = 0x22;
                 if (protoNum === 148) actualProto = 0x94;
 
                 const dynamicAck = Buffer.from([
-                  0x78, 0x78,
-                  0x05,
-                  actualProto,
-                  serialH, serialL,
-                  crcH, crcL,
-                  0x0D, 0x0A
+                  0x78, 0x78,       // Start Bits
+                  0x05,             // Length
+                  actualProto,      // Protocol Number
+                  serialH, serialL, // डिवाइस का अपना असली सीरियल नंबर
+                  crcH, crcL,       // डिवाइस का अपना असली CRC
+                  0x0D, 0x0A        // Stop Bits
                 ]);
 
-                // बफ़र ओवरलैप को रोकने के लिए तुरंत फ्लश करें (कॉलबैक के साथ)
+                // बिना किसी डिले के तुरंत डिवाइस को ACK वापस फेंकें
                 socket.write(dynamicAck, 'binary', () => {
-                  console.log(`[🟢 FLUSHED TO WIRE] ACK for 0x${actualProto.toString(16)} successfully sent.`);
+                  console.log(`[🟢 FLUSHED TO WIRE] Official ACK for 0x${actualProto.toString(16)} successfully sent.`);
                 });
               }
               else if (isLong) {
                 const extAck = buildGT06ExtACK(proto, serial);
                 socket.write(extAck, 'binary', () => { });
               }
-
             }
+
 
             // ── इसके नीचे का कोड आपके Part 2 में आएगा ──────────────────
             // ── PART 2: PROTOCOL ROUTING & PARSING ───────────────────────────

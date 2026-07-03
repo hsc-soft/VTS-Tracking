@@ -1,3 +1,9 @@
+// ── 7. ACK dispatch ───────────────────────────
+            if (isLong) {
+              socket.write(buildGT06ExtACK(proto, serial));
+            } else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
+              socket.write(buildGT06ACK(proto, serial));
+            }
 const net = require('net');
 const db = require('./db');
 const redis = require('./redis');
@@ -869,8 +875,6 @@ function startGPSServer(port) {
         if (gt06Mode) {
           while (buf.length >= 6) {
 
-            console.log("buf", buf.toString('hex'));
-
             // ── 1. Packet type detect ──────────────────────
             const isShort = buf[0] === 0x78 && buf[1] === 0x78;
             const isLong = buf[0] === 0x79 && buf[1] === 0x79;
@@ -918,48 +922,13 @@ function startGPSServer(port) {
               continue;
             }
 
-            // ── 7. 🚀 ARCHITECTURAL COLLISION FIX (100% FIXED) ──────────────────
-            // ── G. 🚀 सुपर-फ़ास्ट डायनेमिक रिस्पॉन्स (0x22 ACK ALWAYS ON TO CLEAR MEMORY) ──
-            const protoNum = Number(proto);
-
-            if (pkt.length >= 10) {
-
-              // 🎯 मुख्य सुधार: हमने इस लिस्ट में 0x22 और 34 को वापस जोड़ दिया है!
-              // अब जैसे ही डिवाइस 26 बफ़र रिकॉर्ड भेजेगी, सर्वर तुरंत उसे 0x22 का ACK लौटा देगा।
-              if ([0x01, 0x13, 19, 0x16, 0x22, 34, 0x94, 148].includes(protoNum)) {
-
-                const serialH = pkt[pkt.length - 6];
-                const serialL = pkt[pkt.length - 5];
-                const crcH = pkt[pkt.length - 4];
-                const crcL = pkt[pkt.length - 3];
-
-                let actualProto = protoNum;
-                if (protoNum === 19) actualProto = 0x13;
-                if (protoNum === 34) actualProto = 0x22;
-                if (protoNum === 148) actualProto = 0x94;
-
-                const dynamicAck = Buffer.from([
-                  0x78, 0x78,       // Start Bits
-                  0x05,             // Length
-                  actualProto,      // Protocol Number
-                  serialH, serialL, // डिवाइस का अपना असली सीरियल नंबर
-                  crcH, crcL,       // डिवाइस का अपना असली CRC
-                  0x0D, 0x0A        // Stop Bits
-                ]);
-
-                // बिना किसी डिले के तुरंत डिवाइस को ACK वापस फेंकें
-                socket.write(dynamicAck, 'binary', () => {
-                  console.log(`[🟢 FLUSHED TO WIRE] Official ACK for 0x${actualProto.toString(16)} successfully sent.`);
-                });
-              }
-              else if (isLong) {
-                const extAck = buildGT06ExtACK(proto, serial);
-                socket.write(extAck, 'binary', () => { });
-              }
+            // ── 7. ACK dispatch ───────────────────────────
+            if (isLong) {
+              socket.write(buildGT06ExtACK(proto, serial));
+            } else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
+              socket.write(buildGT06ACK(proto, serial));
             }
 
-
-            // ── इसके नीचे का कोड आपके Part 2 में आएगा ──────────────────
             // ── PART 2: PROTOCOL ROUTING & PARSING ───────────────────────────
             if (proto === 0x01) {
               pktCount.login++;
@@ -972,8 +941,8 @@ function startGPSServer(port) {
               pktCount.gps++;
 
               const maybeCount = content[0];
-              const isMultiRecord = proto === 0x22 ||
-                (maybeCount >= 1 && maybeCount <= 20 && content.length === 1 + maybeCount * 18);
+              const isMultiRecord = maybeCount >= 1 && maybeCount <= 20 &&
+                                    content.length === 1 + maybeCount * 18;
 
               if (isMultiRecord) {
                 const recordCount = maybeCount;
@@ -1010,6 +979,7 @@ function startGPSServer(port) {
                 try {
                   const data = parseGT06GPS(content, imei);
                   if (data) {
+                    if (proto === 0x22) data.protocol = 'gt06_buffered';
                     const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
                     const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
                     const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
@@ -1017,7 +987,8 @@ function startGPSServer(port) {
                     if (pktCount.gps === 1) {
                       console.log(`🚗 Movement — IMEI: ${imei} | GPS time: ${gpsTime} | Delay: ${delayMin} min`);
                     }
-                    console.log(`📍 GPS record — IMEI: ${imei} | Time: ${recvTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
+                    const label = proto === 0x22 ? '📦 Buffered GPS' : '📍 GPS record';
+                    console.log(`${label} — IMEI: ${imei} | Time: ${recvTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
 
                     // सॉकेट थ्रेड को फ्री रखने के लिए एसिंक्रोनस आइसोलेशन
                     setTimeout(async () => {

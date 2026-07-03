@@ -907,6 +907,8 @@ function startGPSServer(port) {
               crcCalc = crc16GT06(pkt.subarray(2, pkt.length - 4));
             }
 
+            console.log(`[GT06] Packet — Proto: 0x${proto.toString(16).padStart(2, '0')} | Length: ${len} | Content: ${content.toString('hex')}`);
+
             const serial = pkt.readUInt16BE(pkt.length - 6);
             const crcRecv = pkt.readUInt16BE(pkt.length - 4);
 

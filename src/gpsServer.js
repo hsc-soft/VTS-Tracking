@@ -1117,6 +1117,49 @@ function startGPSServer(port) {
                   console.error(`[HB Isolated Catch Error] IMEI: ${imei}:`, err.message);
                 }
               }, 0);
+
+            // ── PART 4: 0x16 ALARM PACKET ────────────────────────────────
+            } else if (proto === 0x16) {
+              pktCount.alarm++;
+
+              const ALARM_NAMES = {
+                0x00: 'SOS', 0x01: 'Power cut', 0x02: 'Vibration',
+                0x03: 'Enter geofence', 0x04: 'Exit geofence', 0x05: 'Overspeed',
+                0x06: 'Acceleration', 0x07: 'Deceleration', 0x09: 'ACC ON',
+                0x10: 'Displacement', 0x11: 'High RPM',
+              };
+
+              // GPS: content[0-17], LBS length at [18], alarm after LBS + 3 status bytes
+              const lbsLen = content[18] ?? 0;
+              const alarmType = content[22 + lbsLen] ?? 0xFF;
+              const alarmName = ALARM_NAMES[alarmType] ?? `Unknown(0x${alarmType.toString(16)})`;
+
+              try {
+                const data = parseGT06GPS(content.subarray(0, 18), imei);
+                if (data) {
+                  data.alarm_type = alarmType;
+                  data.protocol = 'gt06_alarm';
+                  const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                  console.log(`🚨 Alarm — IMEI: ${imei} | Type: ${alarmName} | Lat: ${data.latitude} | Lng: ${data.longitude} | Time: ${gpsTime}`);
+                  setTimeout(async () => {
+                    try { savePing(data); }
+                    catch (err) { console.error('[Alarm savePing Error]:', err.message); }
+                  }, 200);
+                }
+              } catch (e) {
+                console.error('[Alarm Parse Error]:', e.message);
+              }
+
+            // ── PART 5: 0x94 ICCID PACKET ────────────────────────────────
+            } else if (proto === 0x94) {
+              // Server does not need to reply (protocol doc page 29)
+              // ExtACK already sent above in ACK dispatch (isLong path)
+              const iccid = content.toString('ascii').replace(/\0/g, '').trim();
+              console.log(`📱 ICCID — IMEI: ${imei} | ICCID: ${iccid}`);
+
+            } else {
+              pktCount.other++;
+              console.log(`[GT06] Unknown proto 0x${proto.toString(16).padStart(2,'0')} — IMEI: ${imei} | content: ${content.toString('hex')}`);
             }
           } // while लूप का अंत
         } // gt06Mode का अंत

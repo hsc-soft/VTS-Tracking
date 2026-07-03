@@ -50,8 +50,8 @@ Key GT06N proto handlers:
 - `0x01` Login — extracts 15-digit IMEI from 8-byte BCD content
 - `0x12` / `0x22` GPS — single or multi-record; `parseGT06GPS()` decodes 18-byte GPS record
 - `0x13` Heartbeat — terminal info byte: bit6=GPS fix, bit1=ACC; triggers ignition change detection, trip detection, excessive idle, live position update via `setImmediate`
-- `0x16` Alarm — GPS data + alarm type at `content[26]`
-- `0x94` ICCID — extended format, ExtACK only
+- `0x16` Alarm — GPS data (same 18B as 0x12) + LBS + alarm type at `content[22 + lbsLen]` where `lbsLen = content[18]`
+- `0x94` ICCID — extended (79 79) format only; protocol says server does NOT need to reply, but ExtACK is harmless
 
 **Teltonika Codec8 Extended** — `parseCodec8Extended()`, CRC-16/IBM (poly=0x8005)
 
@@ -78,7 +78,8 @@ All routes under `/api/` require JWT Bearer token (`src/middleware/auth.js`). JW
 ### Device Configuration (SK05S)
 
 Current device settings: `TIMER:10,60;SENDS:1;HBT:3,5`
-- Records GPS every 10s, uploads every 60s in short-TCP sessions
-- Each session sends 2 buffered GPS records (as separate `0x12` packets, not `0x22`)
-- Heartbeat every 3 minutes when stationary
-- ECONNRESET after each session is normal firmware behavior (not a server error)
+- `TIMER:10,60` — upload every 10s when vehicle running; every 60s when vehicle stopped (NOT GPS record interval)
+- `SENDS:1` — short-TCP mode: connect → login → GPS data → disconnect (ECONNRESET is normal, NOT a bug)
+- `HBT:3,5` — heartbeat every 3 min when stationary; must get ACK within 5s or device reconnects
+- `0x22` is NOT in the official SK05S protocol document; device uses it as firmware extension for stored/buffered GPS (same 18-byte format as 0x12)
+- 32-minute GPS delay = documented behavior (protocol sec 5.2.2): device stores records when GSM signal is weak, uploads them all after vehicle stops

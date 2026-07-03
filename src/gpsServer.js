@@ -1,9 +1,3 @@
-// ── 7. ACK dispatch ───────────────────────────
-            if (isLong) {
-              socket.write(buildGT06ExtACK(proto, serial));
-            } else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
-              socket.write(buildGT06ACK(proto, serial));
-            }
 const net = require('net');
 const db = require('./db');
 const redis = require('./redis');

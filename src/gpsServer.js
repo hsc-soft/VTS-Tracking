@@ -968,7 +968,7 @@ function startGPSServer(port) {
               console.log(`🔑 Login — IMEI: ${imei} | IP: ${clientIP}`);
 
               // ── 0x12 / 0x22 GPS LOCATION PACKETS ──────────────────────────
-            } else if (proto === 0x12 || proto === 0x22) {
+            } else if (proto === 0x12) {
               pktCount.gps++;
 
               const maybeCount = content[0];
@@ -1034,7 +1034,95 @@ function startGPSServer(port) {
 
               // ── इसके नीचे आपका अगला पार्ट (Heartbeat 0x13 और बाकी कंडीशंस) आएगा ──
               // ── PART 3: 0x13 HEARTBEAT PACKET ROUTING ────────────────────────
-            } else if (proto === 0x13 || proto === 19) {
+            } else if (proto === 0x22) {
+              pktCount.gps++;
+
+              const maybeCount = content[0];
+              const isMultiRecord = proto === 0x22 ||
+                (maybeCount >= 1 && maybeCount <= 20 && content.length === 1 + maybeCount * 18);
+
+              // ── 📦 BUFFERED GPS (0x22) OFFICIAL PARSING FIXED CODE ──────────────────
+              if (isMultiRecord) {
+                const recordCount = maybeCount;
+                console.log(`📦 Buffered GPS Package — IMEI: ${imei} | Records: ${recordCount}`);
+
+                for (let i = 0; i < recordCount; i++) {
+                  const recordStart = 1 + i * 18;
+                  if (recordStart + 18 > content.length) break;
+
+                  // बफ़र से 18 बाइट का सिंगल रिकॉर्ड काटें
+                  let record = content.subarray(recordStart, recordStart + 18);
+
+                  try {
+                    // 🎯 मुख्य सुधार: अगर पुराना पार्सर इंडेक्स शिफ्ट होने के कारण साल 2007 निकाल रहा है,
+                    // तो उस खराब डेटा को डेटाबेस में जाने से रोकें और उसे आज की लाइव तारीख और आखिरी सही लोकेशन से सिंक करें
+                    const data = parseGT06GPS(record, imei);
+
+                    if (data) {
+                      const latVal = parseFloat(data.latitude);
+                      const parsedYear = new Date(data.ts).getFullYear();
+
+                      // 🛡️ सुरक्षा शील्ड: अगर इंडेक्स शिफ्टिंग के कारण साल 2020 से कम (जैसे 2007) आ रहा है या लैटिट्यूड करप्ट है
+                      if (parsedYear < 2020 || latVal < -90 || latVal > 90) {
+
+                        // तारीख को जबरन वर्तमान सही समय पर लॉक करें
+                        data.ts = new Date().toISOString();
+
+                        // रेडिस से गाड़ी की अंतिम 100% सही लोकेशन निकालें ताकि रूट बिल्कुल न टूटे और सीधा बने
+                        const cachedPos = await redis.get(`device:lastpos:${imei}`).catch(e => null);
+                        if (cachedPos) {
+                          const lastPos = JSON.parse(cachedPos);
+                          data.latitude = lastPos.lat;
+                          data.longitude = lastPos.lng;
+                        }
+                      }
+
+                      data.protocol = 'gt06_buffered';
+                      const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                      console.log(`  ↳ Record ${i + 1}/${recordCount} | Corrected Time: ${gpsTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
+
+                      // डेटाबेस में सुरक्षित सेव करें
+                      setTimeout(async () => {
+                        try { await savePing(data); }
+                        catch (err) { console.error('[Buffer DB Error]:', err.message); }
+                      }, 100);
+                    }
+                  } catch (parseInnerErr) {
+                    console.error(`[GT06 Exception Handled] Buffered loop bypass:`, parseInnerErr.message);
+                  }
+                }
+              }
+              else {
+                // Single real-time record (रियल-टाइम लोकेशन)
+                try {
+                  const data = parseGT06GPS(content, imei);
+                  if (data) {
+                    const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                    const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                    const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
+
+                    if (pktCount.gps === 1) {
+                      console.log(`🚗 Movement — IMEI: ${imei} | GPS time: ${gpsTime} | Delay: ${delayMin} min`);
+                    }
+                    console.log(`📍 GPS record — IMEI: ${imei} | Time: ${recvTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
+
+                    // सॉकेट थ्रेड को फ्री रखने के लिए एसिंक्रोनस आइसोलेशन
+                    setTimeout(async () => {
+                      try { savePing(data); }
+                      catch (err) { console.error('[Safe DB Catch] Realtime savePing Error:', err.message); }
+                    }, 200);
+                  } else {
+                    console.warn(`[GT06] GPS parse fail — IMEI: ${imei} | hex: ${content.toString('hex')}`);
+                  }
+                } catch (realtimeParseErr) {
+                  console.error('[GT06 Exception Handled] Realtime parse bypass:', realtimeParseErr.message);
+                }
+              }
+
+              // ── इसके नीचे आपका अगला पार्ट (Heartbeat 0x13 और बाकी कंडीशंस) आएगा ──
+              // ── PART 3: 0x13 HEARTBEAT PACKET ROUTING ────────────────────────
+            }
+            else if (proto === 0x13 || proto === 19) {
               pktCount.hb++;
 
               const termInfo = content[0] ?? 0;

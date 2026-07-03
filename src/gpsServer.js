@@ -968,7 +968,7 @@ function startGPSServer(port) {
               console.log(`🔑 Login — IMEI: ${imei} | IP: ${clientIP}`);
 
               // ── 0x12 / 0x22 GPS LOCATION PACKETS ──────────────────────────
-            } else if (proto === 0x12) {
+            } else if (proto === 0x12 || proto === 0x22) {
               pktCount.gps++;
 
               const maybeCount = content[0];
@@ -1034,117 +1034,7 @@ function startGPSServer(port) {
 
               // ── इसके नीचे आपका अगला पार्ट (Heartbeat 0x13 और बाकी कंडीशंस) आएगा ──
               // ── PART 3: 0x13 HEARTBEAT PACKET ROUTING ────────────────────────
-            } else if (proto === 0x22) {
-              pktCount.gps++;
-
-              const maybeCount = content[0];
-              const isMultiRecord = proto === 0x22 ||
-                (maybeCount >= 1 && maybeCount <= 20 && content.length === 1 + maybeCount * 18);
-
-              // ── 📦 BUFFERED GPS (0x22) OFFICIAL PARSING FIXED CODE ──────────────────
-              // ── 📦 BUFFERED GPS (0x22) ACCURATE BINARY PARSER (NO DUPLICATE) ──
-              if (isMultiRecord) {
-                const recordCount = maybeCount;
-                console.log(`📦 Buffered GPS Package — IMEI: ${imei} | Records: ${recordCount}`);
-
-                for (let i = 0; i < recordCount; i++) {
-                  const recordStart = 1 + i * 18;
-                  if (recordStart + 18 > content.length) break;
-
-                  // 18 बाइट का सिंगल रिकॉर्ड बफ़र काटें
-                  let record = content.subarray(recordStart, recordStart + 18);
-
-                  try {
-                    // 🎯 आधिकारिक डॉक्यूमेंट के अनुसार सीधे बाइट्स से असली लैट/लॉन्ग और डेट निकालें
-                    // बाइट 0-5: Date & Time
-                    const year = record[0] + 2000;
-                    const month = record[1] - 1; // JS months are 0-11
-                    const day = record[2];
-                    const hour = record[3];
-                    const min = record[4];
-                    const sec = record[5];
-                    const exactDate = new Date(Date.UTC(year, month, day, hour, min, sec));
-
-                    // बाइट 6-9: Latitude (4 Bytes BE)
-                    let rawLat = record.readUInt32BE(6);
-                    let latitude = rawLat / 1800000; // प्रोटोकॉल का फॉर्मूला
-
-                    // बाइट 10-13: Longitude (4 Bytes BE)
-                    let rawLng = record.readUInt32BE(10);
-                    let longitude = rawLng / 1800000; // प्रोटोकॉल का फॉर्मूला
-
-                    // बाइट 14: Speed
-                    const speed_kmh = record[14];
-
-                    // 🗺️ इंडिया बाउन्ड्री चेक (यदि लैट/लॉन्ग भारत के बाहर जा रहा है तो हेक्स इंडेक्स को सिंक करें)
-                    // भारत का लैटिट्यूड लगभग 6° से 37° और लॉन्जिट्यूड 68° से 97° के बीच होता है
-                    if (latitude > 90 || longitude > 180) {
-                      // अगर चीनी क्लोन में बाइट्स का ऑफसेट 2 बाइट आगे खिसका हुआ है:
-                      rawLat = record.readUInt32BE(4);
-                      rawLng = record.readUInt32BE(8);
-                      latitude = rawLat / 1800000;
-                      longitude = rawLng / 1800000;
-                    }
-
-                    // डेटा ऑब्जेक्ट तैयार करें
-                    const data = {
-                      imei,
-                      ts: exactDate.toISOString(),
-                      latitude: parseFloat(latitude.toFixed(6)),
-                      longitude: parseFloat(longitude.toFixed(6)),
-                      speed_kmh: speed_kmh,
-                      heading: 0,
-                      ignition: false, // बफ़र डेटा आमतौर पर ACC OFF पर आता है
-                      protocol: 'gt06_buffered',
-                      io: {}
-                    };
-
-                    const gpsTime = exactDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                    console.log(`  ↳ Record ${i + 1}/${recordCount} | Real Time: ${gpsTime} | Real Lat: ${data.latitude} | Real Lng: ${data.longitude}`);
-
-                    // डेटाबेस में सुरक्षित सेव करें (बिना रेडिस डिपेंडेंसी के)
-                    setTimeout(async () => {
-                      try { await savePing(data); }
-                      catch (err) { console.error('[Buffer DB Error]:', err.message); }
-                    }, 100);
-
-                  } catch (parseInnerErr) {
-                    console.error(`[GT06 Document Parser Error]:`, parseInnerErr.message);
-                  }
-                }
-              }
-
-              else {
-                // Single real-time record (रियल-टाइम लोकेशन)
-                try {
-                  const data = parseGT06GPS(content, imei);
-                  if (data) {
-                    const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                    const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                    const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
-
-                    if (pktCount.gps === 1) {
-                      console.log(`🚗 Movement — IMEI: ${imei} | GPS time: ${gpsTime} | Delay: ${delayMin} min`);
-                    }
-                    console.log(`📍 GPS record — IMEI: ${imei} | Time: ${recvTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
-
-                    // सॉकेट थ्रेड को फ्री रखने के लिए एसिंक्रोनस आइसोलेशन
-                    setTimeout(async () => {
-                      try { savePing(data); }
-                      catch (err) { console.error('[Safe DB Catch] Realtime savePing Error:', err.message); }
-                    }, 200);
-                  } else {
-                    console.warn(`[GT06] GPS parse fail — IMEI: ${imei} | hex: ${content.toString('hex')}`);
-                  }
-                } catch (realtimeParseErr) {
-                  console.error('[GT06 Exception Handled] Realtime parse bypass:', realtimeParseErr.message);
-                }
-              }
-
-              // ── इसके नीचे आपका अगला पार्ट (Heartbeat 0x13 और बाकी कंडीशंस) आएगा ──
-              // ── PART 3: 0x13 HEARTBEAT PACKET ROUTING ────────────────────────
-            }
-            else if (proto === 0x13 || proto === 19) {
+            } else if (proto === 0x13 || proto === 19) {
               pktCount.hb++;
 
               const termInfo = content[0] ?? 0;

@@ -937,8 +937,7 @@ function startGPSServer(port) {
               pktCount.gps++;
 
               const maybeCount = content[0];
-              const isMultiRecord = maybeCount >= 1 && maybeCount <= 20 &&
-                                    content.length === 1 + maybeCount * 18;
+              const isMultiRecord = maybeCount >= 1 && maybeCount <= 20 && content.length >= 1 + maybeCount * 18;
 
               if (isMultiRecord) {
                 const recordCount = maybeCount;
@@ -960,7 +959,7 @@ function startGPSServer(port) {
 
                       // setTimeout(..., 0) हैवी डेटाबेस टास्क को लूप ब्लॉक से मुक्त रखता है
                       setTimeout(async () => {
-                        try { savePing(data); }
+                        try { await savePing(data); }
                         catch (err) { console.error('[Safe DB Catch] Buffered savePing Error:', err.message); }
                       }, 200);
                     } else {
@@ -988,7 +987,7 @@ function startGPSServer(port) {
 
                     // सॉकेट थ्रेड को फ्री रखने के लिए एसिंक्रोनस आइसोलेशन
                     setTimeout(async () => {
-                      try { savePing(data); }
+                      try { await savePing(data); }
                       catch (err) { console.error('[Safe DB Catch] Realtime savePing Error:', err.message); }
                     }, 200);
                   } else {
@@ -1051,7 +1050,7 @@ function startGPSServer(port) {
                         imei, ts: new Date().toISOString(),
                         latitude: lastPos.lat, longitude: lastPos.lng,
                         speed_kmh: 0, heading: 0, ignition: acc,
-                        battery_v: null, satellites: null, altitude: 0,
+                        battery_v: null, satellites: 0, altitude: 0,
                         protocol: 'gt06_heartbeat', io: {}
                       });
 
@@ -1118,7 +1117,7 @@ function startGPSServer(port) {
                 }
               }, 0);
 
-            // ── PART 4: 0x16 ALARM PACKET ────────────────────────────────
+              // ── PART 4: 0x16 ALARM PACKET ────────────────────────────────
             } else if (proto === 0x16) {
               pktCount.alarm++;
 
@@ -1142,7 +1141,7 @@ function startGPSServer(port) {
                   const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
                   console.log(`🚨 Alarm — IMEI: ${imei} | Type: ${alarmName} | Lat: ${data.latitude} | Lng: ${data.longitude} | Time: ${gpsTime}`);
                   setTimeout(async () => {
-                    try { savePing(data); }
+                    try { await savePing(data); }
                     catch (err) { console.error('[Alarm savePing Error]:', err.message); }
                   }, 200);
                 }
@@ -1150,7 +1149,7 @@ function startGPSServer(port) {
                 console.error('[Alarm Parse Error]:', e.message);
               }
 
-            // ── PART 5: 0x94 ICCID PACKET ────────────────────────────────
+              // ── PART 5: 0x94 ICCID PACKET ────────────────────────────────
             } else if (proto === 0x94) {
               // Server does not need to reply (protocol doc page 29)
               // ExtACK already sent above in ACK dispatch (isLong path)
@@ -1159,7 +1158,7 @@ function startGPSServer(port) {
 
             } else {
               pktCount.other++;
-              console.log(`[GT06] Unknown proto 0x${proto.toString(16).padStart(2,'0')} — IMEI: ${imei} | content: ${content.toString('hex')}`);
+              console.log(`[GT06] Unknown proto 0x${proto.toString(16).padStart(2, '0')} — IMEI: ${imei} | content: ${content.toString('hex')}`);
             }
           } // while लूप का अंत
         } // gt06Mode का अंत

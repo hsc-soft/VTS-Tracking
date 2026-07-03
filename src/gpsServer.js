@@ -1042,6 +1042,7 @@ function startGPSServer(port) {
                 (maybeCount >= 1 && maybeCount <= 20 && content.length === 1 + maybeCount * 18);
 
               // ── 📦 BUFFERED GPS (0x22) OFFICIAL PARSING FIXED CODE ──────────────────
+              // ── 📦 BUFFERED GPS (0x22) ACCURATE BINARY PARSER (NO DUPLICATE) ──
               if (isMultiRecord) {
                 const recordCount = maybeCount;
                 console.log(`📦 Buffered GPS Package — IMEI: ${imei} | Records: ${recordCount}`);
@@ -1050,48 +1051,69 @@ function startGPSServer(port) {
                   const recordStart = 1 + i * 18;
                   if (recordStart + 18 > content.length) break;
 
-                  // बफ़र से 18 बाइट का सिंगल रिकॉर्ड काटें
+                  // 18 बाइट का सिंगल रिकॉर्ड बफ़र काटें
                   let record = content.subarray(recordStart, recordStart + 18);
 
                   try {
-                    // 🎯 मुख्य सुधार: अगर पुराना पार्सर इंडेक्स शिफ्ट होने के कारण साल 2007 निकाल रहा है,
-                    // तो उस खराब डेटा को डेटाबेस में जाने से रोकें और उसे आज की लाइव तारीख और आखिरी सही लोकेशन से सिंक करें
-                    const data = parseGT06GPS(record, imei);
+                    // 🎯 आधिकारिक डॉक्यूमेंट के अनुसार सीधे बाइट्स से असली लैट/लॉन्ग और डेट निकालें
+                    // बाइट 0-5: Date & Time
+                    const year = record[0] + 2000;
+                    const month = record[1] - 1; // JS months are 0-11
+                    const day = record[2];
+                    const hour = record[3];
+                    const min = record[4];
+                    const sec = record[5];
+                    const exactDate = new Date(Date.UTC(year, month, day, hour, min, sec));
 
-                    if (data) {
-                      const latVal = parseFloat(data.latitude);
-                      const parsedYear = new Date(data.ts).getFullYear();
+                    // बाइट 6-9: Latitude (4 Bytes BE)
+                    let rawLat = record.readUInt32BE(6);
+                    let latitude = rawLat / 1800000; // प्रोटोकॉल का फॉर्मूला
 
-                      // 🛡️ सुरक्षा शील्ड: अगर इंडेक्स शिफ्टिंग के कारण साल 2020 से कम (जैसे 2007) आ रहा है या लैटिट्यूड करप्ट है
-                      if (parsedYear < 2020 || latVal < -90 || latVal > 90) {
+                    // बाइट 10-13: Longitude (4 Bytes BE)
+                    let rawLng = record.readUInt32BE(10);
+                    let longitude = rawLng / 1800000; // प्रोटोकॉल का फॉर्मूला
 
-                        // तारीख को जबरन वर्तमान सही समय पर लॉक करें
-                        data.ts = new Date().toISOString();
+                    // बाइट 14: Speed
+                    const speed_kmh = record[14];
 
-                        // रेडिस से गाड़ी की अंतिम 100% सही लोकेशन निकालें ताकि रूट बिल्कुल न टूटे और सीधा बने
-                        const cachedPos = await redis.get(`device:lastpos:${imei}`).catch(e => null);
-                        if (cachedPos) {
-                          const lastPos = JSON.parse(cachedPos);
-                          data.latitude = lastPos.lat;
-                          data.longitude = lastPos.lng;
-                        }
-                      }
-
-                      data.protocol = 'gt06_buffered';
-                      const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
-                      console.log(`  ↳ Record ${i + 1}/${recordCount} | Corrected Time: ${gpsTime} | Lat: ${data.latitude} | Lng: ${data.longitude}`);
-
-                      // डेटाबेस में सुरक्षित सेव करें
-                      setTimeout(async () => {
-                        try { await savePing(data); }
-                        catch (err) { console.error('[Buffer DB Error]:', err.message); }
-                      }, 100);
+                    // 🗺️ इंडिया बाउन्ड्री चेक (यदि लैट/लॉन्ग भारत के बाहर जा रहा है तो हेक्स इंडेक्स को सिंक करें)
+                    // भारत का लैटिट्यूड लगभग 6° से 37° और लॉन्जिट्यूड 68° से 97° के बीच होता है
+                    if (latitude > 90 || longitude > 180) {
+                      // अगर चीनी क्लोन में बाइट्स का ऑफसेट 2 बाइट आगे खिसका हुआ है:
+                      rawLat = record.readUInt32BE(4);
+                      rawLng = record.readUInt32BE(8);
+                      latitude = rawLat / 1800000;
+                      longitude = rawLng / 1800000;
                     }
+
+                    // डेटा ऑब्जेक्ट तैयार करें
+                    const data = {
+                      imei,
+                      ts: exactDate.toISOString(),
+                      latitude: parseFloat(latitude.toFixed(6)),
+                      longitude: parseFloat(longitude.toFixed(6)),
+                      speed_kmh: speed_kmh,
+                      heading: 0,
+                      ignition: false, // बफ़र डेटा आमतौर पर ACC OFF पर आता है
+                      protocol: 'gt06_buffered',
+                      io: {}
+                    };
+
+                    const gpsTime = exactDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+                    console.log(`  ↳ Record ${i + 1}/${recordCount} | Real Time: ${gpsTime} | Real Lat: ${data.latitude} | Real Lng: ${data.longitude}`);
+
+                    // डेटाबेस में सुरक्षित सेव करें (बिना रेडिस डिपेंडेंसी के)
+                    setTimeout(async () => {
+                      try { await savePing(data); }
+                      catch (err) { console.error('[Buffer DB Error]:', err.message); }
+                    }, 100);
+
                   } catch (parseInnerErr) {
-                    console.error(`[GT06 Exception Handled] Buffered loop bypass:`, parseInnerErr.message);
+                    console.error(`[GT06 Document Parser Error]:`, parseInnerErr.message);
                   }
                 }
               }
+
               else {
                 // Single real-time record (रियल-टाइम लोकेशन)
                 try {

@@ -832,10 +832,9 @@ function startGPSServer(port) {
     const clientIP = socket.remoteAddress;
     console.log(`📡 Device connected: ${clientIP}`);
 
-    // सर्वर साइड टाइमआउट और कीप-अलाइव को एकदम परफेक्ट सेट करें
-    socket.setTimeout(0);
     socket.setNoDelay(true);
     socket.setKeepAlive(true, 5000);
+    socket.setTimeout(60000); // 60s idle → destroy (kills bots/scanners silently)
 
     let imei = null;
     let buf = Buffer.alloc(0);
@@ -961,7 +960,7 @@ function startGPSServer(port) {
                       setTimeout(async () => {
                         try { await savePing(data); }
                         catch (err) { console.error('[Safe DB Catch] Buffered savePing Error:', err.message); }
-                      }, 200);
+                      }, 100);
                     } else {
                       console.warn(`[GT06] Buffered record ${i + 1} parse fail — hex: ${record.toString('hex')}`);
                     }
@@ -989,7 +988,7 @@ function startGPSServer(port) {
                     setTimeout(async () => {
                       try { await savePing(data); }
                       catch (err) { console.error('[Safe DB Catch] Realtime savePing Error:', err.message); }
-                    }, 200);
+                    }, 100);
                   } else {
                     console.warn(`[GT06] GPS parse fail — IMEI: ${imei} | hex: ${content.toString('hex')}`);
                   }
@@ -1143,7 +1142,7 @@ function startGPSServer(port) {
                   setTimeout(async () => {
                     try { await savePing(data); }
                     catch (err) { console.error('[Alarm savePing Error]:', err.message); }
-                  }, 200);
+                  }, 100);
                 }
               } catch (e) {
                 console.error('[Alarm Parse Error]:', e.message);
@@ -1168,9 +1167,13 @@ function startGPSServer(port) {
     }); // socket.on('data') का अंत
 
     // ── 💡 नेटवर्क एरर को म्यूट करें (खड़ी गाड़ी का नॉर्मल डिस्कनेक्शन इग्नोर करें) ──
+    socket.on('timeout', () => {
+      socket.destroy(); // idle connection (bot/scanner) — silently close
+    });
+
     socket.on('error', (err) => {
-      if (err.code === 'ECONNRESET') return; // स्क्रीन पर लाल रंग की एरर आना बंद हो जाएगी
-      console.error(`[-] Real Socket Error from ${clientIP}:`, err.message);
+      if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') return;
+      console.error(`[-] Socket Error from ${clientIP}:`, err.message);
     });
 
     socket.on('close', () => {

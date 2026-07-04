@@ -1049,7 +1049,7 @@ function startGPSServer(port) {
                         imei, ts: new Date().toISOString(),
                         latitude: lastPos.lat, longitude: lastPos.lng,
                         speed_kmh: 0, heading: 0, ignition: acc,
-                        battery_v: null, satellites: 0, altitude: 0,
+                        battery_v: null, satellites: gpsFix ? 1 : 0, altitude: 0,
                         protocol: 'gt06_heartbeat', io: {}
                       });
 

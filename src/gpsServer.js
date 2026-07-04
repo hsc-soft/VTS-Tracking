@@ -920,7 +920,7 @@ function startGPSServer(port) {
             // ── 7. ACK dispatch ───────────────────────────
             if (isLong) {
               socket.write(buildGT06ExtACK(proto, serial));
-            } else if ([0x01, 0x12, 0x13, 0x16, 0x22].includes(proto)) {
+            } else if ([0x01, 0x12, 0x13, 0x16, 0x22, 0x24].includes(proto)) {
               socket.write(buildGT06ACK(proto, serial));
             }
 
@@ -932,7 +932,7 @@ function startGPSServer(port) {
               console.log(`🔑 Login — IMEI: ${imei} | IP: ${clientIP}`);
 
               // ── 0x12 / 0x22 GPS LOCATION PACKETS ──────────────────────────
-            } else if (proto === 0x12 || proto === 0x22) {
+            } else if (proto === 0x12 || proto === 0x22 || proto === 0x24) {
               pktCount.gps++;
 
               const maybeCount = content[0];
@@ -974,6 +974,7 @@ function startGPSServer(port) {
                   const data = parseGT06GPS(content, imei);
                   if (data) {
                     if (proto === 0x22) data.protocol = 'gt06_buffered';
+                    if (proto === 0x24) data.protocol = 'gt06_realtime';
                     const recvTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
                     const gpsTime = new Date(data.ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
                     const delayMin = ((Date.now() - new Date(data.ts).getTime()) / 60000).toFixed(1);
